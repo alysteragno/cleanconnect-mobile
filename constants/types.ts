@@ -1,0 +1,61 @@
+export type UserRole = 'customer' | 'cleaner' | 'branch_manager' | 'super_admin'
+
+export type BookingStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
+
+export type PaymentStatus = 'unpaid' | 'partial' | 'paid' | 'refunded'
+
+export type AssignmentStatus = 'offered' | 'accepted' | 'declined' | 'completed'
+
+export type ServiceType = 'general' | 'premium_mattress' | 'complete' | 'disinfection' | 'post_construction'
+
+export type SpaceType = 'residential' | 'commercial'
+
+export const SERVICE_LABELS: Record<ServiceType, string> = {
+  general: 'General Cleaning',
+  premium_mattress: 'Mattress & Upholstery',
+  complete: 'Complete Package',
+  disinfection: 'Disinfection',
+  post_construction: 'Post-Construction',
+}
+
+export const STATUS_LABELS: Record<BookingStatus, string> = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+}
+
+export type Profile = {
+  id: string
+  full_name: string
+  phone: string | null
+  role: UserRole
+  branch_id: string | null
+  is_active: boolean
+}
+
+export type Booking = {
+  id: string
+  customer_id: string
+  branch_id: string
+  service_type: ServiceType
+  space_type: SpaceType
+  service_date: string
+  service_time: string
+  property_sqm: number
+  required_cleaners: number
+  duration_hours: number
+  base_price: number
+  status: BookingStatus
+  payment_status: PaymentStatus
+  payment_method: string
+  address_unit: string | null
+  address_street: string | null
+  address_city: string | null
+  address_province: string | null
+  service_lat: number | null
+  service_lng: number | null
+  special_notes: string | null
+  created_at: string
+}
