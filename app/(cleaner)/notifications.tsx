@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, FlatList, TouchableOpacity,
+  View, Text, SectionList, TouchableOpacity,
   ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -12,9 +12,21 @@ type Notification = {
   id: string
   title: string
   body: string
-  read: boolean
+  type: string | null
+  is_read: boolean
   created_at: string
 }
+
+type Announcement = {
+  id: string
+  title: string
+  body: string | null
+  created_at: string
+}
+
+type SectionItem =
+  | { kind: 'notification'; data: Notification }
+  | { kind: 'announcement'; data: Announcement }
 
 function formatTime(d: string) {
   const date = new Date(d)
@@ -34,32 +46,50 @@ function formatTime(d: string) {
 export default function CleanerNotificationsScreen() {
   const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    loadNotifications()
-  }, [])
+  useEffect(() => { load() }, [])
 
-  async function loadNotifications() {
+  async function load() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data } = await supabase
-      .from('notifications')
-      .select('id, title, body, read, created_at')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+    const [{ data: notifs }, { data: annouces }] = await Promise.all([
+      supabase
+        .from('notifications')
+        .select('id, title, body, type, is_read, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('announcements')
+        .select('id, title, body, created_at')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
+    ])
 
-    setNotifications((data ?? []) as Notification[])
+    setNotifications((notifs ?? []) as Notification[])
+    setAnnouncements((annouces ?? []) as Announcement[])
     setLoading(false)
     setRefreshing(false)
 
-    const unreadIds = (data ?? []).filter((n: any) => !n.read).map((n: any) => n.id)
+    const unreadIds = (notifs ?? []).filter((n: any) => !n.is_read).map((n: any) => n.id)
     if (unreadIds.length > 0) {
-      await supabase.from('notifications').update({ read: true }).in('id', unreadIds)
+      await supabase.from('notifications').update({ is_read: true }).in('id', unreadIds)
     }
   }
+
+  const sections = [
+    ...(notifications.length > 0
+      ? [{ title: 'Notifications', data: notifications.map(n => ({ kind: 'notification' as const, data: n })) }]
+      : []),
+    ...(announcements.length > 0
+      ? [{ title: 'Announcements', data: announcements.map(a => ({ kind: 'announcement' as const, data: a })) }]
+      : []),
+  ]
+
+  const isEmpty = notifications.length === 0 && announcements.length === 0
 
   if (loading) {
     return (
@@ -82,64 +112,107 @@ export default function CleanerNotificationsScreen() {
         <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>Notifications</Text>
       </View>
 
-      <FlatList
-        data={notifications}
-        keyExtractor={item => item.id}
-        contentContainerStyle={{ padding: 16, gap: 8 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); loadNotifications() }}
-            tintColor={Colors.primary}
-          />
-        }
-        ListEmptyComponent={
-          <View style={{ alignItems: 'center', padding: 48 }}>
-            <Feather name="bell" size={40} color={Colors.textMuted} style={{ marginBottom: 12 }} />
-            <Text style={{ fontSize: 15, fontWeight: '700', color: '#374151' }}>No notifications</Text>
-            <Text style={{ fontSize: 13, color: '#9ca3af', marginTop: 4, textAlign: 'center' }}>
-              Job offers and updates will appear here.
-            </Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <View style={{
-            backgroundColor: item.read ? '#fff' : Colors.primary + '08',
-            borderRadius: 14, borderWidth: 1,
-            borderColor: item.read ? '#e5e7eb' : Colors.primary + '30',
-            padding: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-          }}>
-            <View style={{
-              width: 36, height: 36, borderRadius: 18,
-              backgroundColor: Colors.primary + '15',
-              alignItems: 'center', justifyContent: 'center', marginTop: 2,
-            }}>
-              <Feather name="bell" size={16} color={Colors.primary} />
+      {isEmpty ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 }}>
+          <Feather name="bell" size={40} color={Colors.textMuted} style={{ marginBottom: 12 }} />
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#374151' }}>All caught up</Text>
+          <Text style={{ fontSize: 13, color: '#9ca3af', marginTop: 4, textAlign: 'center' }}>
+            Job offers, updates and announcements will appear here.
+          </Text>
+        </View>
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={item => item.data.id}
+          contentContainerStyle={{ padding: 16, gap: 4 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); load() }}
+              tintColor={Colors.primary}
+            />
+          }
+          renderSectionHeader={({ section }) => (
+            <View style={{ paddingVertical: 8, paddingHorizontal: 2 }}>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {section.title}
+              </Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Text style={{
-                  fontSize: 14, fontWeight: item.read ? '600' : '700', color: '#111827', flex: 1, marginRight: 8,
+          )}
+          renderItem={({ item }: { item: SectionItem }) => {
+            if (item.kind === 'notification') {
+              const n = item.data
+              return (
+                <View style={{
+                  backgroundColor: n.is_read ? '#fff' : Colors.primary + '08',
+                  borderRadius: 14, borderWidth: 1,
+                  borderColor: n.is_read ? '#e5e7eb' : Colors.primary + '30',
+                  padding: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+                  marginBottom: 8,
                 }}>
-                  {item.title}
-                </Text>
-                {!item.read && (
                   <View style={{
-                    width: 8, height: 8, borderRadius: 4,
-                    backgroundColor: Colors.primary, marginTop: 4,
-                  }} />
-                )}
+                    width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: Colors.primary + '15',
+                    alignItems: 'center', justifyContent: 'center', marginTop: 2,
+                  }}>
+                    <Feather name="bell" size={16} color={Colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Text style={{
+                        fontSize: 14, fontWeight: n.is_read ? '600' : '700',
+                        color: '#111827', flex: 1, marginRight: 8,
+                      }}>
+                        {n.title}
+                      </Text>
+                      {!n.is_read && (
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary, marginTop: 4 }} />
+                      )}
+                    </View>
+                    {!!n.body && (
+                      <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 3, lineHeight: 18 }}>
+                        {n.body}
+                      </Text>
+                    )}
+                    <Text style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                      {formatTime(n.created_at)}
+                    </Text>
+                  </View>
+                </View>
+              )
+            }
+
+            const a = item.data
+            return (
+              <View style={{
+                backgroundColor: '#fdf2f8',
+                borderRadius: 14, borderWidth: 1, borderColor: Colors.primary + '30',
+                padding: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+                marginBottom: 8,
+              }}>
+                <View style={{
+                  width: 36, height: 36, borderRadius: 18,
+                  backgroundColor: Colors.primary + '20',
+                  alignItems: 'center', justifyContent: 'center', marginTop: 2,
+                }}>
+                  <Feather name="volume-2" size={16} color={Colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>{a.title}</Text>
+                  {!!a.body && (
+                    <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 3, lineHeight: 18 }}>
+                      {a.body}
+                    </Text>
+                  )}
+                  <Text style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                    {formatTime(a.created_at)}
+                  </Text>
+                </View>
               </View>
-              <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 3, lineHeight: 18 }}>
-                {item.body}
-              </Text>
-              <Text style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
-                {formatTime(item.created_at)}
-              </Text>
-            </View>
-          </View>
-        )}
-      />
+            )
+          }}
+        />
+      )}
     </View>
   )
 }

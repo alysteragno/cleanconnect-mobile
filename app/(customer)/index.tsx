@@ -47,7 +47,7 @@ export default function CustomerHomeScreen() {
         .from('notifications')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
-        .eq('read', false),
+        .eq('is_read', false),
     ])
 
     setName(profile?.full_name?.split(' ')[0] ?? 'there')
