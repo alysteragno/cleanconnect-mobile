@@ -92,13 +92,18 @@ export default function CleanerHomeScreen() {
   return (
     <ScrollView className="flex-1 bg-gray-50">
       <AppHeader
-        greeting="Welcome back,"
-        name={name}
+        title="Home"
         unreadCount={unreadCount}
         onBellPress={() => router.push('/(cleaner)/notifications')}
       />
 
-      <View className="px-6 -mt-4">
+      <View className="px-6 pt-5">
+        {/* Greeting */}
+        <View className="mb-5">
+          <Text className="text-gray-500 text-sm">Welcome back,</Text>
+          <Text className="text-gray-900 text-2xl font-bold mt-0.5">{name}</Text>
+        </View>
+
         {/* Pending Offers */}
         <View className="mb-5">
           <View className="flex-row justify-between items-center mb-3">
