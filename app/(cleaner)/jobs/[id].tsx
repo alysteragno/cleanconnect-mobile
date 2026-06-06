@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, ScrollView,
   ActivityIndicator, Linking, Alert,
 } from 'react-native'
+import MapView, { Marker } from 'react-native-maps'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -32,6 +33,7 @@ type Assignment = {
     status: string
     payment_method: string
     branches: { name: string } | null
+    customer: { full_name: string } | null
   }
 }
 
@@ -63,7 +65,8 @@ export default function JobDetailScreen() {
           service_type, space_type, service_date, service_time, property_sqm,
           base_price, duration_hours, address_unit, address_street, address_city,
           address_province, service_lat, service_lng, special_notes, status,
-          payment_method, branches (name)
+          payment_method, branches (name),
+          customer:profiles!customer_id(full_name)
         )
       `)
       .eq('id', id)
@@ -152,6 +155,7 @@ export default function JobDetailScreen() {
 
         {/* Service details */}
         <DetailCard title="Job Details" rows={[
+          ...(b.customer ? [{ label: 'Customer', value: b.customer.full_name }] : []),
           { label: 'Service', value: SERVICE_LABELS[b.service_type] },
           { label: 'Space', value: b.space_type === 'residential' ? 'Residential' : 'Commercial' },
           { label: 'Size', value: `${b.property_sqm} sqm` },
@@ -166,7 +170,7 @@ export default function JobDetailScreen() {
           { label: 'Time', value: formatTime(b.service_time) },
         ]} />
 
-        {/* Address */}
+        {/* Address + Map */}
         <View style={{
           backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
           borderColor: '#e5e7eb', overflow: 'hidden',
@@ -176,15 +180,37 @@ export default function JobDetailScreen() {
             backgroundColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 10,
             borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Service Address</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Service Location</Text>
             <TouchableOpacity
               onPress={openMaps}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
             >
               <Feather name="navigation" size={13} color={Colors.primary} />
-              <Text style={{ fontSize: 13, color: Colors.primary, fontWeight: '600' }}>Navigate</Text>
+              <Text style={{ fontSize: 13, color: Colors.primary, fontWeight: '600' }}>Get Directions</Text>
             </TouchableOpacity>
           </View>
+
+          {b.service_lat && b.service_lng ? (
+            <MapView
+              style={{ height: 180 }}
+              region={{
+                latitude: b.service_lat,
+                longitude: b.service_lng,
+                latitudeDelta: 0.008,
+                longitudeDelta: 0.008,
+              }}
+              scrollEnabled={false}
+              zoomEnabled={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
+            >
+              <Marker
+                coordinate={{ latitude: b.service_lat, longitude: b.service_lng }}
+                pinColor={Colors.primary}
+              />
+            </MapView>
+          ) : null}
+
           <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
             <Text style={{ fontSize: 14, color: '#111827', lineHeight: 20 }}>{fullAddress}</Text>
             {b.service_lat && (

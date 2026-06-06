@@ -23,6 +23,7 @@ type Assignment = {
     address_city: string | null
     address_street: string | null
     status: string
+    customer: { full_name: string } | null
   }
 }
 
@@ -69,7 +70,7 @@ export default function CleanerJobsScreen() {
         .from('cleaner_assignments')
         .select(`
           id, booking_id, status,
-          bookings (service_type, service_date, service_time, property_sqm, base_price, address_city, address_street, status)
+          bookings (service_type, service_date, service_time, property_sqm, base_price, address_city, address_street, status, customer:profiles!customer_id(full_name))
         `)
         .eq('cleaner_id', user.id)
         .neq('status', 'declined')
@@ -219,7 +220,15 @@ export default function CleanerJobsScreen() {
                   </View>
                 </View>
               </View>
-              <Text className="text-xs text-gray-400">{item.bookings?.property_sqm} sqm</Text>
+              <View className="flex-row items-center justify-between mt-0.5">
+                <Text className="text-xs text-gray-400">{item.bookings?.property_sqm} sqm</Text>
+                {item.status === 'completed' && item.bookings?.customer && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Feather name="user" size={10} color="#9ca3af" />
+                    <Text style={{ fontSize: 11, color: '#9ca3af' }}>{item.bookings.customer.full_name}</Text>
+                  </View>
+                )}
+              </View>
             </TouchableOpacity>
 
             {/* Offer actions */}

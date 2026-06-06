@@ -1,4 +1,4 @@
-export type UserRole = 'customer' | 'cleaner' | 'branch_manager' | 'super_admin'
+export type UserRole = 'customer' | 'cleaner' | 'super_admin'
 
 export type BookingStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
 
@@ -72,5 +72,6 @@ export type Booking = {
   service_lat: number | null
   service_lng: number | null
   special_notes: string | null
+  started_at: string | null
   created_at: string
 }

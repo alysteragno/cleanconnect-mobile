@@ -21,7 +21,6 @@ const STATUS_COLORS: Record<BookingStatus, string> = {
 const PROGRESS_STEPS: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'completed']
 
 type BookingDetail = Booking & {
-  branches?: { name: string; address: string | null } | null
   cleaner_assignments?: Array<{
     status: string
     profiles: { full_name: string; id: string } | null
@@ -61,7 +60,6 @@ export default function BookingDetailScreen() {
       .from('bookings')
       .select(`
         *,
-        branches (name, address),
         cleaner_assignments (status, profiles (full_name, id))
       `)
       .eq('id', id)
@@ -213,7 +211,6 @@ export default function BookingDetailScreen() {
           { label: 'Service', value: SERVICE_LABELS[booking.service_type] },
           { label: 'Space', value: booking.space_type === 'residential' ? 'Residential' : 'Commercial' },
           { label: 'Size', value: `${booking.property_sqm} sqm` },
-          ...(booking.branches ? [{ label: 'Branch', value: booking.branches.name }] : []),
           ...(cleanerName ? [{ label: 'Cleaner', value: cleanerName }] : []),
         ]} />
 
@@ -230,11 +227,12 @@ export default function BookingDetailScreen() {
           }] : []),
         ]} />
 
-        {/* Schedule */}
+        {/* Schedule + ETA */}
         <DetailCard title="Schedule" rows={[
           { label: 'Date', value: formatDate(booking.service_date) },
           { label: 'Time', value: formatTime(booking.service_time) },
           { label: 'Duration', value: `~${booking.duration_hours}h` },
+          { label: 'ETA', value: booking.status === 'cancelled' ? '—' : formatTime(booking.service_time) },
         ]} />
 
         {/* Payment */}
