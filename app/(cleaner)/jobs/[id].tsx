@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import AppHeader from '@/components/AppHeader'
 import { SERVICE_LABELS, ServiceType } from '@/constants/types'
 
 type Assignment = {
@@ -134,31 +135,18 @@ export default function JobDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      <View style={{
-        backgroundColor: Colors.primary,
-        paddingTop: 56, paddingBottom: 20, paddingHorizontal: 24,
-        flexDirection: 'row', alignItems: 'center',
-      }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>
-            {SERVICE_LABELS[b.service_type]}
-          </Text>
-          <Text style={{ color: '#fbcfe8', fontSize: 12, marginTop: 2 }}>
-            Job #{assignment.id.slice(0, 8).toUpperCase()}
-          </Text>
-        </View>
-        <View style={{
-          paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99,
-          backgroundColor: (statusColors[assignment.status] ?? '#6b7280') + '30',
-        }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff', textTransform: 'capitalize' }}>
-            {assignment.status}
-          </Text>
-        </View>
-      </View>
+      <AppHeader
+        showBack
+        onBackPress={() => router.back()}
+        title={SERVICE_LABELS[b.service_type]}
+        subtitle={`Job #${assignment.id.slice(0, 8).toUpperCase()}`}
+        hideBell
+        rightContent={
+          <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: (statusColors[assignment.status] ?? '#6b7280') + '30' }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff', textTransform: 'capitalize' }}>{assignment.status}</Text>
+          </View>
+        }
+      />
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
 

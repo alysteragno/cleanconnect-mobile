@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import AppHeader from '@/components/AppHeader'
 import { Booking, BookingStatus, Feedback, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
 
 const STATUS_COLORS: Record<BookingStatus, string> = {
@@ -133,32 +134,18 @@ export default function BookingDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      {/* Header */}
-      <View style={{
-        backgroundColor: Colors.primary,
-        paddingTop: 56, paddingBottom: 20, paddingHorizontal: 24,
-        flexDirection: 'row', alignItems: 'center',
-      }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>
-            {SERVICE_LABELS[booking.service_type]}
-          </Text>
-          <Text style={{ color: '#fbcfe8', fontSize: 12, marginTop: 2 }}>
-            Booking #{booking.id.slice(0, 8).toUpperCase()}
-          </Text>
-        </View>
-        <View style={{
-          paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99,
-          backgroundColor: STATUS_COLORS[booking.status] + '30',
-        }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: STATUS_COLORS[booking.status] }}>
-            {STATUS_LABELS[booking.status]}
-          </Text>
-        </View>
-      </View>
+      <AppHeader
+        showBack
+        onBackPress={() => router.back()}
+        title={SERVICE_LABELS[booking.service_type]}
+        subtitle={`Booking #${booking.id.slice(0, 8).toUpperCase()}`}
+        hideBell
+        rightContent={
+          <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: STATUS_COLORS[booking.status] + '30' }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: STATUS_COLORS[booking.status] }}>{STATUS_LABELS[booking.status]}</Text>
+          </View>
+        }
+      />
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
 

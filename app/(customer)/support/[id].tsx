@@ -6,6 +6,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import AppHeader from '@/components/AppHeader'
 
 type Complaint = {
   id: string
@@ -124,30 +125,17 @@ export default function ComplaintDetailScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      {/* Header */}
-      <View style={{
-        backgroundColor: Colors.primary,
-        paddingTop: 56, paddingBottom: 16, paddingHorizontal: 20,
-        flexDirection: 'row', alignItems: 'flex-start',
-      }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12, marginTop: 2 }}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }} numberOfLines={2}>
-            {complaint.subject}
-          </Text>
-          <View style={{
-            marginTop: 4, alignSelf: 'flex-start',
-            paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99,
-            backgroundColor: statusColor + '30',
-          }}>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', textTransform: 'capitalize' }}>
-              {complaint.status.replace('_', ' ')}
-            </Text>
+      <AppHeader
+        showBack
+        onBackPress={() => router.back()}
+        title={complaint.subject}
+        hideBell
+        rightContent={
+          <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: statusColor + '30' }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', textTransform: 'capitalize' }}>{complaint.status.replace('_', ' ')}</Text>
           </View>
-        </View>
-      </View>
+        }
+      />
 
       {/* Messages */}
       <FlatList

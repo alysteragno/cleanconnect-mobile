@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, SectionList, TouchableOpacity,
+  View, Text, SectionList,
   ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import AppHeader from '@/components/AppHeader'
 
 type Notification = {
   id: string
@@ -101,16 +102,12 @@ export default function CleanerNotificationsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      <View style={{
-        backgroundColor: Colors.primary,
-        paddingTop: 56, paddingBottom: 20, paddingHorizontal: 24,
-        flexDirection: 'row', alignItems: 'center',
-      }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </TouchableOpacity>
-        <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>Notifications</Text>
-      </View>
+      <AppHeader
+        title="Notifications"
+        showBack
+        onBackPress={() => router.back()}
+        hideBell
+      />
 
       {isEmpty ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 }}>

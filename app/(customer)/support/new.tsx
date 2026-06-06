@@ -8,6 +8,7 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { SERVICE_LABELS, ServiceType } from '@/constants/types'
+import AppHeader from '@/components/AppHeader'
 
 type BookingOption = {
   id: string
@@ -84,16 +85,12 @@ export default function NewComplaintScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      <View style={{
-        backgroundColor: Colors.primary,
-        paddingTop: 56, paddingBottom: 20, paddingHorizontal: 24,
-        flexDirection: 'row', alignItems: 'center',
-      }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </TouchableOpacity>
-        <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>File a Complaint</Text>
-      </View>
+      <AppHeader
+        title="File a Complaint"
+        showBack
+        onBackPress={() => router.back()}
+        hideBell
+      />
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
 

@@ -9,6 +9,7 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { SERVICE_LABELS, ServiceType } from '@/constants/types'
+import AppHeader from '@/components/AppHeader'
 
 type JobInfo = {
   assignmentId: string
@@ -209,29 +210,20 @@ export default function ActiveJobScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      {/* Header */}
-      <View style={{
-        backgroundColor: arrived ? '#7c3aed' : Colors.primary,
-        paddingTop: 56, paddingBottom: 20, paddingHorizontal: 24,
-        flexDirection: 'row', alignItems: 'center',
-      }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>
-            {arrived ? 'Active Job' : 'Start Job'}
-          </Text>
-          <Text style={{ color: arrived ? '#c4b5fd' : '#fbcfe8', fontSize: 12, marginTop: 2 }}>
-            {SERVICE_LABELS[job.service_type]}
-          </Text>
-        </View>
-        {arrived && (
-          <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: '#ffffff30' }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>In Progress</Text>
-          </View>
-        )}
-      </View>
+      <AppHeader
+        showBack
+        onBackPress={() => router.back()}
+        title={arrived ? 'Active Job' : 'Start Job'}
+        subtitle={SERVICE_LABELS[job.service_type]}
+        hideBell
+        backgroundColor={arrived ? '#7c3aed' : undefined}
+        rightContent={arrived
+          ? <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: '#ffffff30' }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>In Progress</Text>
+            </View>
+          : undefined
+        }
+      />
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
 

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Image } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { Booking, BookingStatus } from '@/constants/types'
+import AppHeader from '@/components/AppHeader'
 
 const STATUS_COLORS: Record<BookingStatus, string> = {
   pending: '#ca8a04',
@@ -66,42 +67,12 @@ export default function CustomerHomeScreen() {
 
   return (
     <ScrollView className="flex-1 bg-gray-50">
-      {/* Header */}
-      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 20, paddingTop: 52, paddingBottom: 24 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <View style={{
-            backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6,
-            shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1, shadowRadius: 6, elevation: 3,
-          }}>
-            <Image
-              source={require('../../assets/logo.webp')}
-              style={{ width: 80, height: 50 }}
-              resizeMode="contain"
-            />
-          </View>
-          <TouchableOpacity
-            onPress={() => router.push('/(customer)/notifications')}
-            style={{ position: 'relative', padding: 4 }}
-          >
-            <Feather name="bell" size={24} color="#fff" />
-            {unreadCount > 0 && (
-              <View style={{
-                position: 'absolute', top: 0, right: 0,
-                backgroundColor: '#fbbf24', borderRadius: 99,
-                minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center',
-                paddingHorizontal: 3,
-              }}>
-                <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-        <Text style={{ color: '#fbcfe8', fontSize: 13 }}>Good day,</Text>
-        <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800', marginTop: 2 }}>{name}</Text>
-      </View>
+      <AppHeader
+        greeting="Good day,"
+        name={name}
+        unreadCount={unreadCount}
+        onBellPress={() => router.push('/(customer)/notifications')}
+      />
 
       <View className="px-6 -mt-4">
         {/* Book Now CTA */}

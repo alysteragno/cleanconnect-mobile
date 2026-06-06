@@ -8,6 +8,7 @@ import * as Location from 'expo-location'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
+import AppHeader from '@/components/AppHeader'
 import { Colors } from '@/constants/colors'
 import { Branch, ServiceType, SpaceType, SERVICE_LABELS } from '@/constants/types'
 import { estimatePrice } from '@/constants/pricing'
@@ -244,13 +245,11 @@ export default function NewBookingScreen() {
       style={{ flex: 1, backgroundColor: '#f9fafb' }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      {/* Header */}
-      <View style={{ backgroundColor: Colors.primary, paddingTop: 56, paddingBottom: 16, paddingHorizontal: 24 }}>
-        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>New Booking</Text>
-        <Text style={{ color: '#fbcfe8', fontSize: 13, marginTop: 2 }}>
-          Step {step} of 5 — {['Service Details', 'Address', 'Schedule', 'Payment', 'Review'][step - 1]}
-        </Text>
-      </View>
+      <AppHeader
+        title="New Booking"
+        subtitle={`Step ${step} of 5 — ${['Service Details', 'Address', 'Schedule', 'Payment', 'Review'][step - 1]}`}
+        hideBell
+      />
 
       {stepIndicator}
 

@@ -8,6 +8,7 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { Booking, BookingStatus, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
+import AppHeader from '@/components/AppHeader'
 
 const STATUS_COLORS: Record<BookingStatus, string> = {
   pending: '#ca8a04',
@@ -94,18 +95,11 @@ export default function BookingsScreen() {
 
   return (
     <View className="flex-1 bg-gray-50">
-      {/* Header */}
-      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>My Bookings</Text>
-        <TouchableOpacity onPress={() => router.push('/(customer)/notifications')} style={{ position: 'relative', padding: 4 }}>
-          <Feather name="bell" size={22} color="#fff" />
-          {unreadCount > 0 && (
-            <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#fbbf24', borderRadius: 99, minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
-              <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title="My Bookings"
+        unreadCount={unreadCount}
+        onBellPress={() => router.push('/(customer)/notifications')}
+      />
 
       {/* Filter tabs */}
       <View className="bg-white border-b border-gray-100">
