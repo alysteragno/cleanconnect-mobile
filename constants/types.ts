@@ -26,6 +26,21 @@ export const STATUS_LABELS: Record<BookingStatus, string> = {
   cancelled: 'Cancelled',
 }
 
+export type Branch = {
+  id: string
+  name: string
+  address: string | null
+}
+
+export type Feedback = {
+  id: string
+  booking_id: string
+  cleaner_id: string
+  rating: number
+  comment: string | null
+  created_at: string
+}
+
 export type Profile = {
   id: string
   full_name: string

@@ -30,26 +30,38 @@ export default function LoginScreen() {
     }
 
     if (data.session) {
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role, is_active')
         .eq('id', data.session.user.id)
         .single()
 
-      if (!profile?.is_active) {
+      if (profile?.is_active === false) {
         await supabase.auth.signOut()
         setError('Your account has been deactivated. Please contact support.')
         setLoading(false)
         return
       }
 
-      if (profile?.role === 'customer') router.replace('/(customer)')
-      else if (profile?.role === 'cleaner') router.replace('/(cleaner)')
-      else {
+      if (profile?.role && profile.role !== 'customer' && profile.role !== 'cleaner') {
         await supabase.auth.signOut()
         setError('This app is for customers and cleaners only. Please use the web portal.')
         setLoading(false)
+        return
       }
+
+      if (profile?.role === 'customer') {
+        router.replace('/(customer)')
+        return
+      }
+      if (profile?.role === 'cleaner') {
+        router.replace('/(cleaner)')
+        return
+      }
+
+      setError(`Login succeeded but profile could not be loaded (error: ${profileError?.message ?? 'unknown'}). Check Supabase RLS policies.`)
+      await supabase.auth.signOut()
+      setLoading(false)
     }
   }
 
