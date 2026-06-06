@@ -128,25 +128,7 @@ export default function CleanerHomeScreen() {
           )}
         </View>
 
-        {/* ── Quick nav ── */}
-        <View style={s.quickRow}>
-          {[
-            { icon: 'briefcase', label: 'My Jobs',   route: '/(cleaner)/jobs' },
-            { icon: 'calendar',  label: 'Schedule',  route: '/(cleaner)/availability' },
-            { icon: 'user',      label: 'Profile',   route: '/(cleaner)/profile' },
-          ].map(item => (
-            <TouchableOpacity
-              key={item.label}
-              style={s.quickItem}
-              onPress={() => router.push(item.route as any)}
-            >
-              <View style={s.quickIcon}>
-                <Feather name={item.icon as any} size={18} color={Colors.primary} />
-              </View>
-              <Text style={s.quickLabel}>{item.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+      
 
         {/* ── Job Offers ── */}
         <View style={s.section}>
