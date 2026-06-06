@@ -4,7 +4,40 @@ import {
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native'
 import { Link, useRouter } from 'expo-router'
+import * as Notifications from 'expo-notifications'
+import Constants from 'expo-constants'
 import { supabase } from '@/lib/supabase'
+
+async function registerPushToken(userId: string) {
+  try {
+    const { status: existing } = await Notifications.getPermissionsAsync()
+    let finalStatus = existing
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync()
+      finalStatus = status
+    }
+    if (finalStatus !== 'granted') return
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'CleanConnect',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#db2777',
+      })
+    }
+
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      Constants.easConfig?.projectId
+    if (!projectId) return
+
+    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data
+    await supabase.from('profiles').update({ push_token: token }).eq('id', userId)
+  } catch {
+    // Push registration is non-critical — silently skip on failure
+  }
+}
 
 export default function LoginScreen() {
   const router = useRouter()
@@ -51,10 +84,12 @@ export default function LoginScreen() {
       }
 
       if (profile?.role === 'customer') {
+        registerPushToken(data.session.user.id)
         router.replace('/(customer)')
         return
       }
       if (profile?.role === 'cleaner') {
+        registerPushToken(data.session.user.id)
         router.replace('/(cleaner)')
         return
       }
