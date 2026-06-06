@@ -25,7 +25,7 @@ type Props = {
 const HEADER_PADDING_TOP = 56
 const HEADER_PADDING_H = 20
 const HEADER_PADDING_BOTTOM = 18
-const BELL_SIZE = 22
+const BELL_SIZE = 25
 
 export default function AppHeader({
   title,

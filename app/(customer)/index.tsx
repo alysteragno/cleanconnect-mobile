@@ -1,18 +1,26 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
-import { Booking, BookingStatus } from '@/constants/types'
+import { Booking, BookingStatus, ServiceType, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
 
 const STATUS_COLORS: Record<BookingStatus, string> = {
-  pending: '#ca8a04',
+  pending: Colors.warning,
   confirmed: Colors.primary,
   in_progress: '#7c3aed',
-  completed: '#16a34a',
-  cancelled: '#dc2626',
+  completed: Colors.success,
+  cancelled: Colors.error,
+}
+
+const SVC: Record<ServiceType, { icon: string; color: string; bg: string }> = {
+  general:            { icon: 'home',    color: '#0891b2', bg: '#e0f2fe' },
+  premium_mattress:   { icon: 'layers',  color: '#7c3aed', bg: '#ede9fe' },
+  complete:           { icon: 'star',    color: '#db2777', bg: '#fce7f3' },
+  disinfection:       { icon: 'shield',  color: '#16a34a', bg: '#dcfce7' },
+  post_construction:  { icon: 'tool',    color: '#ca8a04', bg: '#fef9c3' },
 }
 
 function formatDate(d: string) {
@@ -28,9 +36,7 @@ export default function CustomerHomeScreen() {
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -59,14 +65,14 @@ export default function CustomerHomeScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-gray-50 items-center justify-center">
-        <ActivityIndicator color={Colors.primary} />
+      <View style={s.center}>
+        <ActivityIndicator color={Colors.primary} size="large" />
       </View>
     )
   }
 
   return (
-    <ScrollView className="flex-1 bg-gray-50">
+    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
       <AppHeader
         greeting="Good day,"
         name={name}
@@ -74,73 +80,188 @@ export default function CustomerHomeScreen() {
         onBellPress={() => router.push('/(customer)/notifications')}
       />
 
-      <View className="px-6 -mt-4">
-        {/* Book Now CTA */}
+      <View style={s.body}>
+
+        {/* ── Hero booking card ── */}
         <TouchableOpacity
-          className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-5"
+          style={s.hero}
           onPress={() => router.push('/(customer)/bookings/new')}
+          activeOpacity={0.9}
         >
-          <Text className="text-gray-900 text-base font-bold">Book a Cleaning</Text>
-          <Text className="text-gray-500 text-sm mt-1">
-            Schedule a professional cleaning for your home or office.
-          </Text>
-          <View className="bg-pink-600 rounded-xl py-2.5 px-4 mt-4 self-start">
-            <Text className="text-white text-sm font-semibold">Book Now →</Text>
+          {/* Decorative bg icon */}
+          <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
+            style={{ position: 'absolute', bottom: -20, right: -20 }} />
+
+          <View style={s.heroPill}>
+            <Feather name="star" size={10} color={Colors.primary} />
+            <Text style={s.heroPillText}>Maid For You Cleaning</Text>
+          </View>
+
+          <Text style={s.heroTitle}>Book your next{'\n'}cleaning today.</Text>
+          <Text style={s.heroSub}>Professional · Trusted · Affordable</Text>
+
+          <View style={s.heroBtn}>
+            <Text style={s.heroBtnText}>Book a Cleaning</Text>
+            <Feather name="arrow-right" size={13} color={Colors.primary} />
           </View>
         </TouchableOpacity>
 
-        {/* Recent Bookings */}
-        {recent.length > 0 && (
-          <View className="mb-5">
-            <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-gray-900 font-semibold text-sm">Recent Bookings</Text>
-              <TouchableOpacity onPress={() => router.push('/(customer)/bookings')}>
-                <Text className="text-pink-600 text-xs font-semibold">See all →</Text>
-              </TouchableOpacity>
-            </View>
+        {/* ── Quick actions ── */}
+        <View style={s.quickRow}>
+          {[
+            { icon: 'list', label: 'My Bookings', route: '/(customer)/bookings' },
+            { icon: 'message-circle', label: 'Support', route: '/(customer)/support' },
+            { icon: 'user', label: 'Profile', route: '/(customer)/profile' },
+          ].map(item => (
+            <TouchableOpacity
+              key={item.label}
+              style={s.quickItem}
+              onPress={() => router.push(item.route as any)}
+            >
+              <View style={s.quickIcon}>
+                <Feather name={item.icon as any} size={18} color={Colors.primary} />
+              </View>
+              <Text style={s.quickLabel}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-            <View className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              {recent.map((b, i) => (
-                <TouchableOpacity
-                  key={b.id}
-                  className={`flex-row items-center justify-between p-4 ${i < recent.length - 1 ? 'border-b border-gray-100' : ''}`}
-                  onPress={() => router.push(`/(customer)/bookings/${b.id}`)}
-                >
-                  <View>
-                    <Text className="text-sm font-medium text-gray-900 capitalize">
-                      {b.service_type.replace('_', ' ')}
-                    </Text>
-                    <Text className="text-xs text-gray-400 mt-0.5">
-                      {formatDate(b.service_date)}
-                    </Text>
-                  </View>
-                  <View className="items-end">
-                    <Text className="text-sm font-bold text-gray-900">
-                      ₱{Number(b.base_price).toLocaleString()}
-                    </Text>
-                    <Text
-                      className="text-xs font-medium mt-0.5 capitalize"
-                      style={{ color: STATUS_COLORS[b.status] }}
-                    >
-                      {b.status.replace('_', ' ')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
+        {/* ── Recent bookings ── */}
+        <View style={s.section}>
+          <View style={s.sectionHeader}>
+            <Text style={s.sectionTitle}>Recent Bookings</Text>
+            <TouchableOpacity onPress={() => router.push('/(customer)/bookings')}>
+              <Text style={s.sectionLink}>See all</Text>
+            </TouchableOpacity>
           </View>
-        )}
 
-        {recent.length === 0 && (
-          <View className="bg-white rounded-2xl border border-gray-100 p-8 items-center mb-5">
-            <Feather name="wind" size={32} color={Colors.textMuted} style={{ marginBottom: 8 }} />
-            <Text className="text-gray-900 font-semibold text-center">No bookings yet</Text>
-            <Text className="text-gray-400 text-sm text-center mt-1">
-              Book your first cleaning above!
-            </Text>
-          </View>
-        )}
+          {recent.length === 0 ? (
+            <View style={s.empty}>
+              <View style={s.emptyIcon}>
+                <Feather name="calendar" size={28} color={Colors.primary} />
+              </View>
+              <Text style={s.emptyTitle}>No bookings yet</Text>
+              <Text style={s.emptySub}>Your bookings will appear here once you book a cleaning.</Text>
+            </View>
+          ) : (
+            <View style={s.card}>
+              {recent.map((b, i) => {
+                const svc = SVC[b.service_type] ?? SVC.general
+                return (
+                  <TouchableOpacity
+                    key={b.id}
+                    style={[s.bookingRow, i < recent.length - 1 && s.bookingDivider]}
+                    onPress={() => router.push(`/(customer)/bookings/${b.id}` as any)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[s.svcIcon, { backgroundColor: svc.bg }]}>
+                      <Feather name={svc.icon as any} size={16} color={svc.color} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.bookingName}>{SERVICE_LABELS[b.service_type]}</Text>
+                      <Text style={s.bookingDate}>{formatDate(b.service_date)}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                      <View style={[s.statusPill, { backgroundColor: STATUS_COLORS[b.status] + '18' }]}>
+                        <Text style={[s.statusText, { color: STATUS_COLORS[b.status] }]}>
+                          {STATUS_LABELS[b.status]}
+                        </Text>
+                      </View>
+                      <Text style={s.bookingPrice}>₱{Number(b.base_price).toLocaleString()}</Text>
+                    </View>
+                    <Feather name="chevron-right" size={14} color={Colors.textMuted} style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          )}
+        </View>
+
       </View>
     </ScrollView>
   )
 }
+
+const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: Colors.background },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },
+  body: { padding: 20, gap: 20 },
+
+  // Hero
+  hero: {
+    backgroundColor: Colors.primary,
+    borderRadius: 20,
+    padding: 24,
+    overflow: 'hidden',
+  },
+  heroPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 99, marginBottom: 14,
+  },
+  heroPillText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  heroTitle: { fontSize: 24, fontWeight: '800', color: '#fff', lineHeight: 32, marginBottom: 6 },
+  heroSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 20 },
+  heroBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#fff',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderRadius: 12,
+  },
+  heroBtnText: { fontSize: 13, fontWeight: '700', color: Colors.primary },
+
+  // Quick actions
+  quickRow: { flexDirection: 'row', gap: 12 },
+  quickItem: { flex: 1, alignItems: 'center', gap: 8 },
+  quickIcon: {
+    width: 52, height: 52, borderRadius: 16,
+    backgroundColor: Colors.primaryLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  quickLabel: { fontSize: 11, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center' },
+
+  // Section
+  section: { gap: 12 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
+  sectionLink: { fontSize: 12, fontWeight: '600', color: Colors.primary },
+
+  // Card
+  card: {
+    backgroundColor: Colors.white, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    overflow: 'hidden',
+  },
+  bookingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
+  bookingDivider: { borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  svcIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bookingName: { fontSize: 13, fontWeight: '600', color: Colors.text },
+  bookingDate: { fontSize: 11, color: Colors.textMuted, marginTop: 2 },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99 },
+  statusText: { fontSize: 10, fontWeight: '700' },
+  bookingPrice: { fontSize: 12, fontWeight: '700', color: Colors.text },
+
+  // Empty
+  empty: {
+    backgroundColor: Colors.white, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    padding: 32, alignItems: 'center', gap: 8,
+  },
+  emptyIcon: {
+    width: 56, height: 56, borderRadius: 16,
+    backgroundColor: Colors.primaryLight,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
+  emptySub: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18 },
+})
