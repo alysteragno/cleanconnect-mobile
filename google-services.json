@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1036479162333",
+    "project_id": "cleanconnect-b8e1d",
+    "storage_bucket": "cleanconnect-b8e1d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1036479162333:android:cd296e5c0130f35110f834",
+        "android_client_info": {
+          "package_name": "com.maidforyou.cleanconnect"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-xMhWZ0dFmdn47-0Xk45C2glajuXMfjM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

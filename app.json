@@ -22,7 +22,8 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "package": "com.anonymous.cleanconnectmobile"
+      "package": "com.maidforyou.cleanconnect",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,6 +38,13 @@
           "color": "#db2777"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d49b0135-ba32-4ac1-8bec-76a06d781e45"
+      }
+    },
+    "owner": "alysteragno"
   }
 }
