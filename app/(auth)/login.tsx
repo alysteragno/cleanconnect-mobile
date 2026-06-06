@@ -72,26 +72,18 @@ export default function LoginScreen() {
     >
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View className="flex-1 justify-center px-6 pt-16 pb-8">
-          {/* Logo */}
-          <View style={{ alignItems: 'center', marginBottom: 32 }}>
-            <View style={{
-              backgroundColor: '#fff', borderRadius: 24, padding: 16,
-              shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.12, shadowRadius: 12, elevation: 6,
-            }}>
-              <Image
-                source={require('../../assets/logo.webp')}
-                style={{ width: 140, height: 90 }}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={{ color: '#fbcfe8', fontSize: 13, marginTop: 12 }}>
-              Maid For You Cleaning Services
-            </Text>
-          </View>
-
           {/* Card */}
           <View className="bg-white rounded-2xl p-6 shadow-sm">
+            <View style={{ alignItems: 'center', marginBottom: 20 }}>
+              <Image
+                source={require('../../assets/logo.webp')}
+                style={{ width: 130, height: 84 }}
+                resizeMode="contain"
+              />
+              <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 4 }}>
+                Maid For You Cleaning Services
+              </Text>
+            </View>
             <Text className="text-gray-900 text-xl font-bold mb-1">Welcome back</Text>
             <Text className="text-gray-500 text-sm mb-6">Sign in to your account</Text>
 
