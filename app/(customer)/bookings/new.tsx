@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image,
 } from 'react-native'
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
+import * as ImagePicker from 'expo-image-picker'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -17,6 +18,8 @@ type FormData = {
   service_type: ServiceType | null
   space_type: SpaceType | null
   property_sqm: string
+  sofa_seaters: number
+  furniture_images: string[]
   address_unit: string
   address_street: string
   address_city: string
@@ -33,6 +36,8 @@ const INITIAL_FORM: FormData = {
   service_type: null,
   space_type: null,
   property_sqm: '',
+  sofa_seaters: 0,
+  furniture_images: [],
   address_unit: '',
   address_street: '',
   address_city: '',
@@ -94,12 +99,32 @@ export default function NewBookingScreen() {
     setForm(f => ({ ...f, [key]: value }))
   }
 
+  async function pickImages() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow access to your photo library to upload furniture photos.')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      quality: 0.7,
+      selectionLimit: 5,
+    })
+    if (!result.canceled) {
+      const newUris = result.assets.map(a => a.uri)
+      update('furniture_images', [...form.furniture_images, ...newUris].slice(0, 5))
+    }
+  }
+
   function validateStep(): string {
     if (step === 1) {
       if (!form.service_type) return 'Please select a service type.'
       if (!form.space_type) return 'Please select a space type.'
       if (!form.property_sqm || isNaN(Number(form.property_sqm)) || Number(form.property_sqm) <= 0)
         return 'Please enter a valid property size.'
+      if (form.furniture_images.length === 0)
+        return 'Please upload at least one photo of the area/furniture to be cleaned.'
     }
     if (step === 2) {
       if (!form.address_street.trim()) return 'Please enter a street address.'
@@ -145,6 +170,26 @@ export default function NewBookingScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setError('Not authenticated.'); setSubmitting(false); return }
 
+    // Upload furniture images to Supabase Storage
+    const uploadedUrls: string[] = []
+    for (const uri of form.furniture_images) {
+      try {
+        const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg'
+        const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+        const response = await fetch(uri)
+        const blob = await response.blob()
+        const { error: uploadError } = await supabase.storage
+          .from('booking-images')
+          .upload(path, blob, { contentType: `image/${ext}`, upsert: false })
+        if (!uploadError) {
+          const { data: urlData } = supabase.storage.from('booking-images').getPublicUrl(path)
+          uploadedUrls.push(urlData.publicUrl)
+        }
+      } catch {
+        // skip individual failed uploads, form still submits
+      }
+    }
+
     const sqm = parseFloat(form.property_sqm)
     const base_price = estimatePrice(form.service_type!, sqm)
     const duration_hours = Math.max(1, Math.ceil(sqm / 30))
@@ -154,6 +199,8 @@ export default function NewBookingScreen() {
       service_type: form.service_type,
       space_type: form.space_type,
       property_sqm: sqm,
+      sofa_seaters: form.sofa_seaters > 0 ? form.sofa_seaters : null,
+      furniture_images: uploadedUrls.length > 0 ? uploadedUrls : null,
       address_unit: form.address_unit || null,
       address_street: form.address_street,
       address_city: form.address_city,
@@ -383,6 +430,109 @@ export default function NewBookingScreen() {
                 }}
               />
             </View>
+
+            {/* Sofa seaters */}
+            <View>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                Number of Sofa Seaters
+              </Text>
+              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+                Include all sofas, sectionals, and upholstered chairs to be cleaned.
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                <TouchableOpacity
+                  onPress={() => update('sofa_seaters', Math.max(0, form.sofa_seaters - 1))}
+                  style={{
+                    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1.5, borderColor: form.sofa_seaters > 0 ? Colors.primary : '#e5e7eb',
+                    backgroundColor: form.sofa_seaters > 0 ? '#fdf2f8' : '#f9fafb',
+                  }}
+                >
+                  <Text style={{ fontSize: 22, color: form.sofa_seaters > 0 ? Colors.primary : '#d1d5db', lineHeight: 26 }}>−</Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 26, fontWeight: '800', color: '#111827', minWidth: 40, textAlign: 'center' }}>
+                  {form.sofa_seaters}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => update('sofa_seaters', Math.min(20, form.sofa_seaters + 1))}
+                  style={{
+                    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: '#fdf2f8',
+                  }}
+                >
+                  <Text style={{ fontSize: 22, color: Colors.primary, lineHeight: 26 }}>+</Text>
+                </TouchableOpacity>
+                {form.sofa_seaters > 0 && (
+                  <Text style={{ fontSize: 13, color: '#6b7280' }}>
+                    {form.sofa_seaters} seater{form.sofa_seaters !== 1 ? 's' : ''}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            {/* Furniture photo upload */}
+            <View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>
+                  Furniture / Area Photos
+                </Text>
+                <View style={{
+                  backgroundColor: '#fce7f3', borderRadius: 6,
+                  paddingHorizontal: 7, paddingVertical: 2,
+                }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: Colors.primary }}>REQUIRED</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+                Upload photos of the area/furniture so our admin can verify and confirm the service rate. Up to 5 photos.
+              </Text>
+
+              {/* Image grid */}
+              {form.furniture_images.length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  {form.furniture_images.map((uri, i) => (
+                    <View key={uri} style={{ position: 'relative' }}>
+                      <Image
+                        source={{ uri }}
+                        style={{ width: 80, height: 80, borderRadius: 10, backgroundColor: '#f3f4f6' }}
+                        resizeMode="cover"
+                      />
+                      <TouchableOpacity
+                        onPress={() => update('furniture_images', form.furniture_images.filter((_, idx) => idx !== i))}
+                        style={{
+                          position: 'absolute', top: -6, right: -6,
+                          width: 22, height: 22, borderRadius: 11,
+                          backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <Feather name="x" size={12} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {form.furniture_images.length < 5 && (
+                <TouchableOpacity
+                  onPress={pickImages}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                    gap: 8, paddingVertical: 14, borderRadius: 12,
+                    borderWidth: 1.5, borderStyle: 'dashed',
+                    borderColor: form.furniture_images.length === 0 ? Colors.primary : '#e5e7eb',
+                    backgroundColor: form.furniture_images.length === 0 ? '#fdf2f8' : '#f9fafb',
+                  }}
+                >
+                  <Feather name="camera" size={18} color={form.furniture_images.length === 0 ? Colors.primary : '#9ca3af'} />
+                  <Text style={{
+                    fontSize: 14, fontWeight: '600',
+                    color: form.furniture_images.length === 0 ? Colors.primary : '#6b7280',
+                  }}>
+                    {form.furniture_images.length === 0 ? 'Upload Photos (Required)' : 'Add More Photos'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         )}
 
@@ -510,7 +660,7 @@ export default function NewBookingScreen() {
                 value={form.service_date ?? new Date()}
                 minimumDate={new Date()}
                 display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                onChange={(e: DateTimePickerEvent, date?: Date) => {
+                onChange={(_e: DateTimePickerEvent, date?: Date) => {
                   if (Platform.OS === 'android') setShowDatePicker(false)
                   if (date) update('service_date', date)
                 }}
@@ -551,7 +701,7 @@ export default function NewBookingScreen() {
                 value={form.service_time ?? (() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d })()}
                 minuteInterval={30}
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={(e: DateTimePickerEvent, date?: Date) => {
+                onChange={(_e: DateTimePickerEvent, date?: Date) => {
                   if (Platform.OS === 'android') setShowTimePicker(false)
                   if (date) update('service_time', date)
                 }}
@@ -592,6 +742,8 @@ export default function NewBookingScreen() {
                   { label: 'Type', value: SERVICE_LABELS[form.service_type!] },
                   { label: 'Space', value: form.space_type === 'residential' ? 'Residential' : 'Commercial' },
                   { label: 'Size', value: `${form.property_sqm} sqm` },
+                  ...(form.sofa_seaters > 0 ? [{ label: 'Sofas', value: `${form.sofa_seaters} seater${form.sofa_seaters !== 1 ? 's' : ''}` }] : []),
+                  { label: 'Photos', value: `${form.furniture_images.length} uploaded` },
                   {
                     label: 'Est. Price',
                     value: `₱${estimatePrice(form.service_type!, parseFloat(form.property_sqm)).toLocaleString()}`,

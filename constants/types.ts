@@ -59,6 +59,7 @@ export type Booking = {
   service_date: string
   service_time: string
   property_sqm: number
+  sofa_seaters: number | null
   required_cleaners: number
   duration_hours: number
   base_price: number
@@ -72,6 +73,7 @@ export type Booking = {
   service_lat: number | null
   service_lng: number | null
   special_notes: string | null
+  furniture_images: string[] | null
   started_at: string | null
   created_at: string
 }

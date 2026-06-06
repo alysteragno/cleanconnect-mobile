@@ -206,6 +206,30 @@ export default function BookingDetailScreen() {
           </View>
         )}
 
+        {/* Cleaner En Route banner */}
+        {booking.status === 'confirmed' && acceptedAssignment && (
+          <View style={{
+            backgroundColor: '#eff6ff', borderRadius: 14, borderWidth: 1,
+            borderColor: '#93c5fd', padding: 16,
+            flexDirection: 'row', alignItems: 'center', gap: 12,
+          }}>
+            <View style={{
+              width: 42, height: 42, borderRadius: 21,
+              backgroundColor: '#dbeafe', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Feather name="navigation" size={20} color="#2563eb" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#1d4ed8' }}>
+                Cleaner En Route
+              </Text>
+              <Text style={{ fontSize: 13, color: '#3b82f6', marginTop: 2 }}>
+                {cleanerName ?? 'Your cleaner'} is on the way to your location.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Service details */}
         <DetailCard title="Service Details" rows={[
           { label: 'Service', value: SERVICE_LABELS[booking.service_type] },
