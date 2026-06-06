@@ -216,7 +216,7 @@ export default function ActiveJobScreen() {
         flexDirection: 'row', alignItems: 'center',
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <Text style={{ color: '#fff', fontSize: 22 }}>←</Text>
+          <Feather name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>

@@ -131,7 +131,7 @@ export default function ComplaintDetailScreen() {
         flexDirection: 'row', alignItems: 'flex-start',
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12, marginTop: 2 }}>
-          <Text style={{ color: '#fff', fontSize: 22 }}>←</Text>
+          <Feather name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }} numberOfLines={2}>

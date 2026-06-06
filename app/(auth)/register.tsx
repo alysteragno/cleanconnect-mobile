@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity,
+  View, Text, TextInput, TouchableOpacity, Image,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native'
 import { Link, useRouter } from 'expo-router'
@@ -67,9 +67,20 @@ export default function RegisterScreen() {
     >
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View className="flex-1 justify-center px-6 pt-16 pb-8">
-          <View className="mb-10">
-            <Text className="text-white text-3xl font-bold">CleanConnect</Text>
-            <Text className="text-pink-200 text-sm mt-2">
+          {/* Logo */}
+          <View style={{ alignItems: 'center', marginBottom: 32 }}>
+            <View style={{
+              backgroundColor: '#fff', borderRadius: 24, padding: 16,
+              shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.12, shadowRadius: 12, elevation: 6,
+            }}>
+              <Image
+                source={require('../../assets/logo.webp')}
+                style={{ width: 140, height: 90 }}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={{ color: '#fbcfe8', fontSize: 13, marginTop: 12 }}>
               Maid For You Cleaning Services
             </Text>
           </View>

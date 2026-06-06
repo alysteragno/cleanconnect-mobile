@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Image } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -91,22 +91,29 @@ export default function CleanerHomeScreen() {
   return (
     <ScrollView className="flex-1 bg-gray-50">
       {/* Header */}
-      <View className="bg-pink-600 px-6 pt-16 pb-8">
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View>
-            <Text className="text-pink-200 text-sm">Welcome back,</Text>
-            <Text className="text-white text-2xl font-bold mt-0.5">{name}</Text>
+      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 20, paddingTop: 52, paddingBottom: 24 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <View style={{
+            backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6,
+            shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1, shadowRadius: 6, elevation: 3,
+          }}>
+            <Image
+              source={require('../../assets/logo.webp')}
+              style={{ width: 80, height: 50 }}
+              resizeMode="contain"
+            />
           </View>
           <TouchableOpacity
             onPress={() => router.push('/(cleaner)/notifications')}
-            style={{ marginTop: 4, position: 'relative' }}
+            style={{ position: 'relative', padding: 4 }}
           >
-            <Feather name="bell" size={22} color="#fff" />
+            <Feather name="bell" size={24} color="#fff" />
             {unreadCount > 0 && (
               <View style={{
-                position: 'absolute', top: -4, right: -4,
+                position: 'absolute', top: 0, right: 0,
                 backgroundColor: '#fbbf24', borderRadius: 99,
-                minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center',
+                minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center',
                 paddingHorizontal: 3,
               }}>
                 <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>
@@ -116,6 +123,8 @@ export default function CleanerHomeScreen() {
             )}
           </TouchableOpacity>
         </View>
+        <Text style={{ color: '#fbcfe8', fontSize: 13 }}>Welcome back,</Text>
+        <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800', marginTop: 2 }}>{name}</Text>
       </View>
 
       <View className="px-6 -mt-4">
