@@ -1,14 +1,6 @@
 import { Tabs } from 'expo-router'
+import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
-import { Text } from 'react-native'
-
-function TabIcon({ label, focused }: { label: string; focused: boolean }) {
-  return (
-    <Text style={{ fontSize: 20 }}>
-      {label === 'Home' ? '🏠' : label === 'Bookings' ? '📋' : label === 'Support' ? '💬' : '👤'}
-    </Text>
-  )
-}
 
 export default function CustomerLayout() {
   return (
@@ -28,29 +20,33 @@ export default function CustomerLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon label="Home" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Feather name="home" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="bookings"
         options={{
           title: 'Bookings',
-          tabBarIcon: ({ focused }) => <TabIcon label="Bookings" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Feather name="calendar" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="support"
         options={{
           title: 'Support',
-          tabBarIcon: ({ focused }) => <TabIcon label="Support" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Feather name="message-circle" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ focused }) => <TabIcon label="Profile" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Feather name="user" color={color} size={size} />,
         }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{ tabBarButton: () => null, title: 'Notifications' }}
       />
     </Tabs>
   )

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native'
 import { useRouter } from 'expo-router'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { Booking, BookingStatus } from '@/constants/types'
@@ -24,6 +25,7 @@ export default function CustomerHomeScreen() {
   const [name, setName] = useState('')
   const [recent, setRecent] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
     loadData()
@@ -33,7 +35,7 @@ export default function CustomerHomeScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: profile }, { data: bookings }] = await Promise.all([
+    const [{ data: profile }, { data: bookings }, { count }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
       supabase
         .from('bookings')
@@ -41,10 +43,16 @@ export default function CustomerHomeScreen() {
         .eq('customer_id', user.id)
         .order('created_at', { ascending: false })
         .limit(3),
+      supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('read', false),
     ])
 
     setName(profile?.full_name?.split(' ')[0] ?? 'there')
     setRecent((bookings ?? []) as unknown as Booking[])
+    setUnreadCount(count ?? 0)
     setLoading(false)
   }
 
@@ -60,8 +68,30 @@ export default function CustomerHomeScreen() {
     <ScrollView className="flex-1 bg-gray-50">
       {/* Header */}
       <View className="bg-pink-600 px-6 pt-16 pb-8">
-        <Text className="text-pink-200 text-sm">Good day,</Text>
-        <Text className="text-white text-2xl font-bold mt-0.5">{name}</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View>
+            <Text className="text-pink-200 text-sm">Good day,</Text>
+            <Text className="text-white text-2xl font-bold mt-0.5">{name}</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => router.push('/(customer)/notifications')}
+            style={{ marginTop: 4, position: 'relative' }}
+          >
+            <Feather name="bell" size={22} color="#fff" />
+            {unreadCount > 0 && (
+              <View style={{
+                position: 'absolute', top: -4, right: -4,
+                backgroundColor: '#fbbf24', borderRadius: 99,
+                minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center',
+                paddingHorizontal: 3,
+              }}>
+                <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View className="px-6 -mt-4">
@@ -123,7 +153,7 @@ export default function CustomerHomeScreen() {
 
         {recent.length === 0 && (
           <View className="bg-white rounded-2xl border border-gray-100 p-8 items-center mb-5">
-            <Text className="text-2xl mb-2">🧹</Text>
+            <Feather name="wind" size={32} color={Colors.textMuted} style={{ marginBottom: 8 }} />
             <Text className="text-gray-900 font-semibold text-center">No bookings yet</Text>
             <Text className="text-gray-400 text-sm text-center mt-1">
               Book your first cleaning above!

@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router'
+import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
-import { Text } from 'react-native'
 
 export default function CleanerLayout() {
   return (
@@ -20,29 +20,33 @@ export default function CleanerLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>🏠</Text>,
+          tabBarIcon: ({ color, size }) => <Feather name="home" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="jobs"
         options={{
           title: 'Jobs',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>📋</Text>,
+          tabBarIcon: ({ color, size }) => <Feather name="briefcase" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="availability"
         options={{
           title: 'Schedule',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>📅</Text>,
+          tabBarIcon: ({ color, size }) => <Feather name="calendar" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>👤</Text>,
+          tabBarIcon: ({ color, size }) => <Feather name="user" color={color} size={size} />,
         }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{ tabBarButton: () => null, title: 'Notifications' }}
       />
     </Tabs>
   )

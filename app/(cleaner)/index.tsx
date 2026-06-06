@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native'
 import { useRouter } from 'expo-router'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 
@@ -35,6 +36,7 @@ export default function CleanerHomeScreen() {
   const [name, setName] = useState('')
   const [offers, setOffers] = useState<JobOffer[]>([])
   const [loading, setLoading] = useState(true)
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
     loadData()
@@ -44,7 +46,7 @@ export default function CleanerHomeScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: profile }, { data: assignments }] = await Promise.all([
+    const [{ data: profile }, { data: assignments }, { count }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
       supabase
         .from('cleaner_assignments')
@@ -56,10 +58,16 @@ export default function CleanerHomeScreen() {
         .eq('status', 'offered')
         .order('assigned_at', { ascending: false })
         .limit(5),
+      supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('read', false),
     ])
 
     setName(profile?.full_name?.split(' ')[0] ?? 'there')
     setOffers((assignments ?? []) as unknown as JobOffer[])
+    setUnreadCount(count ?? 0)
     setLoading(false)
   }
 
@@ -84,8 +92,30 @@ export default function CleanerHomeScreen() {
     <ScrollView className="flex-1 bg-gray-50">
       {/* Header */}
       <View className="bg-pink-600 px-6 pt-16 pb-8">
-        <Text className="text-pink-200 text-sm">Welcome back,</Text>
-        <Text className="text-white text-2xl font-bold mt-0.5">{name}</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View>
+            <Text className="text-pink-200 text-sm">Welcome back,</Text>
+            <Text className="text-white text-2xl font-bold mt-0.5">{name}</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => router.push('/(cleaner)/notifications')}
+            style={{ marginTop: 4, position: 'relative' }}
+          >
+            <Feather name="bell" size={22} color="#fff" />
+            {unreadCount > 0 && (
+              <View style={{
+                position: 'absolute', top: -4, right: -4,
+                backgroundColor: '#fbbf24', borderRadius: 99,
+                minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center',
+                paddingHorizontal: 3,
+              }}>
+                <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View className="px-6 -mt-4">
@@ -102,7 +132,7 @@ export default function CleanerHomeScreen() {
 
           {offers.length === 0 ? (
             <View className="bg-white rounded-2xl border border-gray-100 p-8 items-center">
-              <Text className="text-2xl mb-2">✅</Text>
+              <Feather name="check-circle" size={32} color={Colors.textMuted} style={{ marginBottom: 8 }} />
               <Text className="text-gray-900 font-semibold text-center">No pending offers</Text>
               <Text className="text-gray-400 text-sm text-center mt-1">
                 New job offers will appear here.
@@ -121,9 +151,10 @@ export default function CleanerHomeScreen() {
                         {formatDate(offer.bookings?.service_date)} · {formatTime(offer.bookings?.service_time)}
                       </Text>
                       {offer.bookings?.address_city && (
-                        <Text className="text-xs text-gray-400 mt-0.5">
-                          📍 {offer.bookings.address_city}
-                        </Text>
+                        <View className="flex-row items-center gap-1 mt-0.5">
+                          <Feather name="map-pin" size={10} color={Colors.textMuted} />
+                          <Text className="text-xs text-gray-400">{offer.bookings.address_city}</Text>
+                        </View>
                       )}
                     </View>
                     <Text className="text-base font-bold text-gray-900">
