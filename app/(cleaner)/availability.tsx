@@ -62,10 +62,24 @@ export default function CleanerScheduleScreen() {
   const [pickerDate, setPickerDate] = useState(tomorrow())
   const [saving, setSaving] = useState(false)
 
+  const [unreadCount, setUnreadCount] = useState(0)
+
   useEffect(() => {
     loadSchedule()
     loadDayoffs()
+    loadUnread()
   }, [])
+
+  async function loadUnread() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { count } = await supabase
+      .from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('is_read', false)
+    setUnreadCount(count ?? 0)
+  }
 
   async function loadSchedule() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -172,9 +186,21 @@ export default function CleanerScheduleScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
       {/* Header */}
-      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingTop: 64, paddingBottom: 16 }}>
-        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>My Schedule</Text>
-        <Text style={{ color: '#fbcfe8', fontSize: 13, marginTop: 2 }}>Schedule & day-off management</Text>
+      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 16 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View>
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>My Schedule</Text>
+            <Text style={{ color: '#fbcfe8', fontSize: 13, marginTop: 2 }}>Schedule & day-off management</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push('/(cleaner)/notifications')} style={{ position: 'relative', padding: 4 }}>
+            <Feather name="bell" size={22} color="#fff" />
+            {unreadCount > 0 && (
+              <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#fbbf24', borderRadius: 99, minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+                <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Tabs */}

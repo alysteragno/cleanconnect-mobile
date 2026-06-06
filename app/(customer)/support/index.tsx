@@ -33,6 +33,7 @@ export default function SupportScreen() {
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => { loadComplaints() }, [])
 
@@ -40,13 +41,21 @@ export default function SupportScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data } = await supabase
-      .from('complaints')
-      .select('id, subject, status, created_at')
-      .eq('customer_id', user.id)
-      .order('created_at', { ascending: false })
+    const [{ data }, { count }] = await Promise.all([
+      supabase
+        .from('complaints')
+        .select('id, subject, status, created_at')
+        .eq('customer_id', user.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false),
+    ])
 
     setComplaints((data ?? []) as Complaint[])
+    setUnreadCount(count ?? 0)
     setLoading(false)
     setRefreshing(false)
   }
@@ -61,9 +70,21 @@ export default function SupportScreen() {
 
   return (
     <View className="flex-1 bg-gray-50">
-      <View className="bg-pink-600 px-6 pt-16 pb-6">
-        <Text className="text-white text-xl font-bold">Support</Text>
-        <Text className="text-pink-200 text-sm mt-0.5">Your complaints & requests</Text>
+      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View>
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>Support</Text>
+            <Text style={{ color: '#fbcfe8', fontSize: 13, marginTop: 2 }}>Your complaints & requests</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push('/(customer)/notifications')} style={{ position: 'relative', padding: 4, marginTop: 2 }}>
+            <Feather name="bell" size={22} color="#fff" />
+            {unreadCount > 0 && (
+              <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#fbbf24', borderRadius: 99, minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+                <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList

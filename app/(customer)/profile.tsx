@@ -3,11 +3,13 @@ import {
   View, Text, TouchableOpacity, ScrollView,
   TextInput, Alert, ActivityIndicator,
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 
 export default function CustomerProfileScreen() {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [email, setEmail] = useState('')
@@ -16,6 +18,7 @@ export default function CustomerProfileScreen() {
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [draftPhone, setDraftPhone] = useState('')
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => { loadProfile() }, [])
 
@@ -24,14 +27,14 @@ export default function CustomerProfileScreen() {
     if (!user) return
     setEmail(user.email ?? '')
 
-    const { data } = await supabase
-      .from('profiles')
-      .select('full_name, phone')
-      .eq('id', user.id)
-      .single()
+    const [{ data }, { count }] = await Promise.all([
+      supabase.from('profiles').select('full_name, phone').eq('id', user.id).single(),
+      supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_read', false),
+    ])
 
     setFullName(data?.full_name ?? '')
     setPhone(data?.phone ?? '')
+    setUnreadCount(count ?? 0)
     setLoading(false)
   }
 
@@ -82,8 +85,16 @@ export default function CustomerProfileScreen() {
 
   return (
     <View className="flex-1 bg-gray-50">
-      <View className="bg-pink-600 px-6 pt-16 pb-8">
-        <Text className="text-white text-xl font-bold">My Profile</Text>
+      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>My Profile</Text>
+        <TouchableOpacity onPress={() => router.push('/(customer)/notifications')} style={{ position: 'relative', padding: 4 }}>
+          <Feather name="bell" size={22} color="#fff" />
+          {unreadCount > 0 && (
+            <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#fbbf24', borderRadius: 99, minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+              <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>

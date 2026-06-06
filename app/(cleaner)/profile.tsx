@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert,
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
@@ -12,11 +13,13 @@ type Stats = {
 }
 
 export default function CleanerProfileScreen() {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
   const [stats, setStats] = useState<Stats>({ completed: 0, accepted: 0 })
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => { loadProfile() }, [])
 
@@ -25,9 +28,10 @@ export default function CleanerProfileScreen() {
     if (!user) return
     setEmail(user.email ?? '')
 
-    const [{ data: profile }, { data: assignments }] = await Promise.all([
+    const [{ data: profile }, { data: assignments }, { count }] = await Promise.all([
       supabase.from('profiles').select('full_name, phone').eq('id', user.id).single(),
       supabase.from('cleaner_assignments').select('status').eq('cleaner_id', user.id),
+      supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_read', false),
     ])
 
     setFullName(profile?.full_name ?? '')
@@ -36,6 +40,7 @@ export default function CleanerProfileScreen() {
       completed: (assignments ?? []).filter(a => a.status === 'completed').length,
       accepted: (assignments ?? []).filter(a => a.status === 'accepted').length,
     })
+    setUnreadCount(count ?? 0)
     setLoading(false)
   }
 
@@ -59,8 +64,16 @@ export default function CleanerProfileScreen() {
 
   return (
     <View className="flex-1 bg-gray-50">
-      <View className="bg-pink-600 px-6 pt-16 pb-8">
-        <Text className="text-white text-xl font-bold">My Profile</Text>
+      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>My Profile</Text>
+        <TouchableOpacity onPress={() => router.push('/(cleaner)/notifications')} style={{ position: 'relative', padding: 4 }}>
+          <Feather name="bell" size={22} color="#fff" />
+          {unreadCount > 0 && (
+            <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#fbbf24', borderRadius: 99, minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+              <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>

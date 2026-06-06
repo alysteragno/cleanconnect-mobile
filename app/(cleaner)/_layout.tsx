@@ -44,10 +44,6 @@ export default function CleanerLayout() {
           tabBarIcon: ({ color, size }) => <Feather name="user" color={color} size={size} />,
         }}
       />
-      <Tabs.Screen
-        name="notifications"
-        options={{ tabBarButton: () => null, title: 'Notifications' }}
-      />
     </Tabs>
   )
 }

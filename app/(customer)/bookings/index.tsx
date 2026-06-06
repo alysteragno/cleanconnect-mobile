@@ -4,6 +4,7 @@ import {
   ScrollView, ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { Booking, BookingStatus, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
@@ -44,6 +45,7 @@ export default function BookingsScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [activeFilter, setActiveFilter] = useState<BookingStatus | 'all'>('all')
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
     loadBookings()
@@ -53,13 +55,21 @@ export default function BookingsScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data } = await supabase
-      .from('bookings')
-      .select('id, service_type, service_date, service_time, base_price, status, payment_status, payment_method')
-      .eq('customer_id', user.id)
-      .order('created_at', { ascending: false })
+    const [{ data }, { count }] = await Promise.all([
+      supabase
+        .from('bookings')
+        .select('id, service_type, service_date, service_time, base_price, status, payment_status, payment_method')
+        .eq('customer_id', user.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false),
+    ])
 
     setBookings((data ?? []) as unknown as Booking[])
+    setUnreadCount(count ?? 0)
     setLoading(false)
     setRefreshing(false)
   }
@@ -85,8 +95,16 @@ export default function BookingsScreen() {
   return (
     <View className="flex-1 bg-gray-50">
       {/* Header */}
-      <View className="bg-pink-600 px-6 pt-16 pb-6">
-        <Text className="text-white text-xl font-bold">My Bookings</Text>
+      <View style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>My Bookings</Text>
+        <TouchableOpacity onPress={() => router.push('/(customer)/notifications')} style={{ position: 'relative', padding: 4 }}>
+          <Feather name="bell" size={22} color="#fff" />
+          {unreadCount > 0 && (
+            <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#fbbf24', borderRadius: 99, minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+              <Text style={{ fontSize: 9, fontWeight: '800', color: '#fff' }}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Filter tabs */}
