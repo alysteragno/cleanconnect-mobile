@@ -165,7 +165,7 @@ export default function ComplaintDetailScreen() {
               }}>
                 {!isMe && (
                   <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, marginBottom: 4 }}>
-                    Support
+                    Admin
                   </Text>
                 )}
                 <Text style={{ fontSize: 14, color: isMe ? '#fff' : '#111827', lineHeight: 20 }}>

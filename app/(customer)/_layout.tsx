@@ -34,6 +34,13 @@ export default function CustomerLayout() {
         name="support"
         options={{
           title: 'Support',
+          tabBarIcon: ({ color, size }) => <Feather name="help-circle" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'Chat',
           tabBarIcon: ({ color, size }) => <Feather name="message-circle" color={color} size={size} />,
         }}
       />

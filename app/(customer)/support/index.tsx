@@ -83,7 +83,11 @@ export default function SupportScreen() {
         keyExtractor={item => item.id}
         contentContainerStyle={{ padding: 16, gap: 10 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadComplaints() }} tintColor={Colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); loadComplaints() }}
+            tintColor={Colors.primary}
+          />
         }
         ListEmptyComponent={
           <View className="bg-white rounded-2xl border border-gray-100 p-8 items-center mt-4">
