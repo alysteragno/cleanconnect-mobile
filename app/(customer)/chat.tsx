@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import {
   View, Text, TouchableOpacity, FlatList,
   TextInput, ActivityIndicator, KeyboardAvoidingView, Platform,
+  Animated,
 } from 'react-native'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import AppHeader from '@/components/AppHeader'
@@ -10,8 +12,10 @@ import AppHeader from '@/components/AppHeader'
 type Message = {
   id: string
   sender_id: string
+  customer_id: string
   message: string
   created_at: string
+  read_at: string | null
 }
 
 function formatTime(d: string) {
@@ -20,69 +24,113 @@ function formatTime(d: string) {
   })
 }
 
+function MessageBubble({ item, userId, animate }: { item: Message; userId: string; animate: boolean }) {
+  const isMe = item.sender_id === userId
+  const opacity = useRef(new Animated.Value(animate ? 0 : 1)).current
+  const translateY = useRef(new Animated.Value(animate ? 12 : 0)).current
+
+  useEffect(() => {
+    if (!animate) return
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start()
+  }, [])
+
+  return (
+    <Animated.View style={{ alignItems: isMe ? 'flex-end' : 'flex-start', opacity, transform: [{ translateY }] }}>
+      <View style={{
+        maxWidth: '80%',
+        backgroundColor: isMe ? Colors.primary : '#fff',
+        borderRadius: 16,
+        borderBottomRightRadius: isMe ? 4 : 16,
+        borderBottomLeftRadius: isMe ? 16 : 4,
+        paddingHorizontal: 14, paddingVertical: 10,
+        borderWidth: isMe ? 0 : 1,
+        borderColor: '#e5e7eb',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 1,
+      }}>
+        {!isMe && (
+          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, marginBottom: 4 }}>
+            Admin
+          </Text>
+        )}
+        <Text style={{ fontSize: 14, color: isMe ? '#fff' : '#111827', lineHeight: 20 }}>
+          {item.message}
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3, marginHorizontal: 4 }}>
+        <Text style={{ fontSize: 10, color: '#9ca3af' }}>{formatTime(item.created_at)}</Text>
+        {isMe && (
+          <Feather
+            name={item.read_at ? 'check-circle' : 'check'}
+            size={10}
+            color={item.read_at ? Colors.primary : '#9ca3af'}
+          />
+        )}
+      </View>
+    </Animated.View>
+  )
+}
+
 export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null)
   const [userId, setUserId] = useState<string | null>(null)
-  const [threadId, setThreadId] = useState<string | null>(null)
-  const [isClosed, setIsClosed] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // track which message ids should animate (only new ones, not initial load)
+  const animatedIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
 
     async function init() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user
+      if (!user) { setLoading(false); return }
       setUserId(user.id)
 
-      // Find or create the single "Chat with Admin" thread
-      let tid: string | null = null
-      const { data: existing } = await supabase
-        .from('complaints')
-        .select('id, status')
+      const { data: msgs, error } = await supabase
+        .from('direct_messages')
+        .select('id, sender_id, customer_id, message, created_at, read_at')
         .eq('customer_id', user.id)
-        .eq('subject', 'Chat with Admin')
-        .maybeSingle()
-
-      if (existing) {
-        tid = existing.id
-        setIsClosed(existing.status === 'resolved' || existing.status === 'closed')
-      } else {
-        const { data: created } = await supabase
-          .from('complaints')
-          .insert({ customer_id: user.id, subject: 'Chat with Admin', status: 'open' })
-          .select('id, status')
-          .single()
-        if (created) {
-          tid = created.id
-          setIsClosed(false)
-        }
-      }
-
-      if (!tid) { setLoading(false); return }
-      setThreadId(tid)
-
-      const { data: msgs } = await supabase
-        .from('complaint_messages')
-        .select('id, sender_id, message, created_at')
-        .eq('complaint_id', tid)
         .order('created_at', { ascending: true })
 
+      if (error) console.error('[chat] fetch error:', error.message)
       setMessages((msgs ?? []) as Message[])
       setLoading(false)
 
+      await markAdminMessagesRead(user.id)
+
       channel = supabase
-        .channel(`chat-admin-${tid}`)
+        .channel(`direct-chat-${user.id}`)
         .on('postgres_changes', {
           event: 'INSERT',
           schema: 'public',
-          table: 'complaint_messages',
-          filter: `complaint_id=eq.${tid}`,
-        }, (payload) => {
-          setMessages(prev => [...prev, payload.new as Message])
+          table: 'direct_messages',
+          filter: `customer_id=eq.${user.id}`,
+        }, async (payload) => {
+          const incoming = payload.new as Message
+
+          // Skip if we already added this optimistically
+          if (animatedIds.current.has(incoming.id)) return
+
+          if (incoming.sender_id !== user.id) {
+            await supabase
+              .from('direct_messages')
+              .update({ read_at: new Date().toISOString() })
+              .eq('id', incoming.id)
+            incoming.read_at = new Date().toISOString()
+          }
+
+          animatedIds.current.add(incoming.id)
+          setMessages(prev => [...prev, incoming])
           setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
         })
         .subscribe()
@@ -92,17 +140,50 @@ export default function ChatScreen() {
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [])
 
+  async function markAdminMessagesRead(customerId: string) {
+    await supabase
+      .from('direct_messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('customer_id', customerId)
+      .neq('sender_id', customerId)
+      .is('read_at', null)
+  }
+
   async function sendMessage() {
-    if (!draft.trim() || !userId || !threadId) return
+    if (!draft.trim() || !userId) return
     setSending(true)
-    await supabase.from('complaint_messages').insert({
-      complaint_id: threadId,
-      sender_id: userId,
-      message: draft.trim(),
-    })
+    const text = draft.trim()
     setDraft('')
-    setSending(false)
+
+    const optimisticId = `opt-${Date.now()}`
+    const optimistic: Message = {
+      id: optimisticId,
+      sender_id: userId,
+      customer_id: userId,
+      message: text,
+      created_at: new Date().toISOString(),
+      read_at: null,
+    }
+    animatedIds.current.add(optimisticId)
+    setMessages(prev => [...prev, optimistic])
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+
+    const { data, error } = await supabase
+      .from('direct_messages')
+      .insert({ customer_id: userId, sender_id: userId, message: text })
+      .select('id, sender_id, customer_id, message, created_at, read_at')
+      .single()
+
+    if (error) {
+      console.error('[chat] insert error:', error.message)
+      // Remove optimistic message — insert failed
+      setMessages(prev => prev.filter(m => m.id !== optimisticId))
+    } else if (data) {
+      animatedIds.current.add(data.id)
+      setMessages(prev => prev.map(m => m.id === optimisticId ? data as Message : m))
+    }
+
+    setSending(false)
   }
 
   if (loading) {
@@ -121,95 +202,64 @@ export default function ChatScreen() {
     >
       <AppHeader
         title="Admin Support"
-        subtitle="CleanConnect Support Team"
+        subtitle="Maid For You Cleaning Services Support Team"
         hideBell
       />
 
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={item => item.id}
-        contentContainerStyle={{ padding: 16, gap: 10 }}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-        ListEmptyComponent={
-          <View style={{ alignItems: 'center', marginTop: 40 }}>
-            <Text style={{ color: '#9ca3af', fontSize: 14 }}>No messages yet. Say hello!</Text>
-          </View>
-        }
-        renderItem={({ item }) => {
-          const isMe = item.sender_id === userId
-          return (
-            <View style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-              <View style={{
-                maxWidth: '80%',
-                backgroundColor: isMe ? Colors.primary : '#fff',
-                borderRadius: 16,
-                borderBottomRightRadius: isMe ? 4 : 16,
-                borderBottomLeftRadius: isMe ? 16 : 4,
-                paddingHorizontal: 14, paddingVertical: 10,
-                borderWidth: isMe ? 0 : 1,
-                borderColor: '#e5e7eb',
-              }}>
-                {!isMe && (
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, marginBottom: 4 }}>
-                    Admin
-                  </Text>
-                )}
-                <Text style={{ fontSize: 14, color: isMe ? '#fff' : '#111827', lineHeight: 20 }}>
-                  {item.message}
-                </Text>
-              </View>
-              <Text style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, marginHorizontal: 4 }}>
-                {formatTime(item.created_at)}
-              </Text>
-            </View>
-          )
-        }}
-      />
-
-      {isClosed ? (
-        <View style={{
-          paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#fff',
-          borderTopWidth: 1, borderTopColor: '#e5e7eb', alignItems: 'center',
-        }}>
-          <Text style={{ fontSize: 13, color: '#9ca3af' }}>
-            This chat is closed. Contact admin to reopen.
-          </Text>
+      {messages.length === 0 ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <Feather name="message-circle" size={48} color="#e5e7eb" />
+          <Text style={{ color: '#9ca3af', fontSize: 14 }}>No messages yet. Say hello!</Text>
         </View>
       ) : (
-        <View style={{
-          flexDirection: 'row', alignItems: 'flex-end', gap: 8,
-          paddingHorizontal: 16, paddingVertical: 12,
-          backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb',
-        }}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Type a message..."
-            placeholderTextColor="#9ca3af"
-            multiline
-            style={{
-              flex: 1, backgroundColor: '#f3f4f6', borderRadius: 20,
-              paddingHorizontal: 14, paddingVertical: 10,
-              fontSize: 14, color: '#111827', maxHeight: 100,
-            }}
-          />
-          <TouchableOpacity
-            onPress={sendMessage}
-            disabled={sending || !draft.trim()}
-            style={{
-              width: 40, height: 40, borderRadius: 20,
-              backgroundColor: draft.trim() ? Colors.primary : '#e5e7eb',
-              alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            {sending
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={{ color: draft.trim() ? '#fff' : '#9ca3af', fontSize: 18, marginLeft: 2 }}>›</Text>
-            }
-          </TouchableOpacity>
-        </View>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={item => item.id}
+          contentContainerStyle={{ padding: 16, gap: 10 }}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          renderItem={({ item }) => (
+            <MessageBubble
+              item={item}
+              userId={userId!}
+              animate={animatedIds.current.has(item.id)}
+            />
+          )}
+        />
       )}
+
+      <View style={{
+        flexDirection: 'row', alignItems: 'flex-end', gap: 8,
+        paddingHorizontal: 16, paddingVertical: 12,
+        backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb',
+      }}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Type a message..."
+          placeholderTextColor="#9ca3af"
+          multiline
+          style={{
+            flex: 1, backgroundColor: '#f3f4f6', borderRadius: 20,
+            paddingHorizontal: 14, paddingVertical: 10,
+            fontSize: 14, color: '#111827', maxHeight: 100,
+          }}
+        />
+        <TouchableOpacity
+          onPress={sendMessage}
+          disabled={sending || !draft.trim()}
+          style={{
+            width: 40, height: 40, borderRadius: 20,
+            backgroundColor: draft.trim() ? Colors.primary : '#e5e7eb',
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {sending
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Feather name="send" size={16} color={draft.trim() ? '#fff' : '#9ca3af'} />
+          }
+        </TouchableOpacity>
+      </View>
     </KeyboardAvoidingView>
   )
 }

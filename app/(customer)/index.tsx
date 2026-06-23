@@ -72,113 +72,99 @@ export default function CustomerHomeScreen() {
   }
 
   return (
-    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
-      <AppHeader
-        greeting="Good day,"
-        name={name}
-        unreadCount={unreadCount}
-        onBellPress={() => router.push('/(customer)/notifications')}
-      />
+    <View style={s.screen}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 96 }}>
+        <AppHeader
+          greeting="Good day,"
+          name={name}
+          unreadCount={unreadCount}
+          onBellPress={() => router.push('/(customer)/notifications')}
+        />
 
-      <View style={s.body}>
+        <View style={s.body}>
 
-        {/* ── Hero booking card ── */}
-        <TouchableOpacity
-          style={s.hero}
-          onPress={() => router.push('/(customer)/bookings/new')}
-          activeOpacity={0.9}
-        >
-          {/* Decorative bg icon */}
-          <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
-            style={{ position: 'absolute', bottom: -20, right: -20 }} />
+          {/* ── Hero booking card ── */}
+          <TouchableOpacity
+            style={s.hero}
+            onPress={() => router.push('/(customer)/bookings/new')}
+            activeOpacity={0.9}
+          >
+            <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
+              style={{ position: 'absolute', bottom: -20, right: -20 }} />
 
-          <View style={s.heroPill}>
-            <Feather name="star" size={10} color={Colors.primary} />
-            <Text style={s.heroPillText}>Maid For You Cleaning</Text>
-          </View>
-
-          <Text style={s.heroTitle}>Book your next{'\n'}cleaning today.</Text>
-          <Text style={s.heroSub}>Professional · Trusted · Affordable</Text>
-
-          <View style={s.heroBtn}>
-            <Text style={s.heroBtnText}>Book a Cleaning</Text>
-            <Feather name="arrow-right" size={13} color={Colors.primary} />
-          </View>
-        </TouchableOpacity>
-
-        {/* ── Quick actions ── */}
-        <View style={s.quickRow}>
-          {[
-            { icon: 'list', label: 'My Bookings', route: '/(customer)/bookings' },
-            { icon: 'message-circle', label: 'Support', route: '/(customer)/support' },
-            { icon: 'user', label: 'Profile', route: '/(customer)/profile' },
-          ].map(item => (
-            <TouchableOpacity
-              key={item.label}
-              style={s.quickItem}
-              onPress={() => router.push(item.route as any)}
-            >
-              <View style={s.quickIcon}>
-                <Feather name={item.icon as any} size={18} color={Colors.primary} />
-              </View>
-              <Text style={s.quickLabel}>{item.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* ── Recent bookings ── */}
-        <View style={s.section}>
-          <View style={s.sectionHeader}>
-            <Text style={s.sectionTitle}>Recent Bookings</Text>
-            <TouchableOpacity onPress={() => router.push('/(customer)/bookings')}>
-              <Text style={s.sectionLink}>See all</Text>
-            </TouchableOpacity>
-          </View>
-
-          {recent.length === 0 ? (
-            <View style={s.empty}>
-              <View style={s.emptyIcon}>
-                <Feather name="calendar" size={28} color={Colors.primary} />
-              </View>
-              <Text style={s.emptyTitle}>No bookings yet</Text>
-              <Text style={s.emptySub}>Your bookings will appear here once you book a cleaning.</Text>
+            <View style={s.heroPill}>
+              <Feather name="star" size={10} color={Colors.primary} />
+              <Text style={s.heroPillText}>Maid For You Cleaning Services</Text>
             </View>
-          ) : (
-            <View style={s.card}>
-              {recent.map((b, i) => {
-                const svc = SVC[b.service_type] ?? SVC.general
-                return (
-                  <TouchableOpacity
-                    key={b.id}
-                    style={[s.bookingRow, i < recent.length - 1 && s.bookingDivider]}
-                    onPress={() => router.push(`/(customer)/bookings/${b.id}` as any)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[s.svcIcon, { backgroundColor: svc.bg }]}>
-                      <Feather name={svc.icon as any} size={16} color={svc.color} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.bookingName}>{SERVICE_LABELS[b.service_type]}</Text>
-                      <Text style={s.bookingDate}>{formatDate(b.service_date)}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                      <View style={[s.statusPill, { backgroundColor: STATUS_COLORS[b.status] + '18' }]}>
-                        <Text style={[s.statusText, { color: STATUS_COLORS[b.status] }]}>
-                          {STATUS_LABELS[b.status]}
-                        </Text>
+
+            <Text style={s.heroTitle}>Book your next{'\n'}cleaning today.</Text>
+            <Text style={s.heroSub}>Professional · Trusted · Affordable</Text>
+          </TouchableOpacity>
+
+          {/* ── Recent bookings ── */}
+          <View style={s.section}>
+            <View style={s.sectionHeader}>
+              <Text style={s.sectionTitle}>Recent Bookings</Text>
+              <TouchableOpacity onPress={() => router.push('/(customer)/bookings')}>
+                <Text style={s.sectionLink}>See all</Text>
+              </TouchableOpacity>
+            </View>
+
+            {recent.length === 0 ? (
+              <View style={s.empty}>
+                <View style={s.emptyIcon}>
+                  <Feather name="calendar" size={28} color={Colors.primary} />
+                </View>
+                <Text style={s.emptyTitle}>No bookings yet</Text>
+                <Text style={s.emptySub}>Your bookings will appear here once you book a cleaning.</Text>
+              </View>
+            ) : (
+              <View style={s.card}>
+                {recent.map((b, i) => {
+                  const svc = SVC[b.service_type] ?? SVC.general
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={[s.bookingRow, i < recent.length - 1 && s.bookingDivider]}
+                      onPress={() => router.push(`/(customer)/bookings/${b.id}` as any)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[s.svcIcon, { backgroundColor: svc.bg }]}>
+                        <Feather name={svc.icon as any} size={16} color={svc.color} />
                       </View>
-                      <Text style={s.bookingPrice}>₱{Number(b.base_price).toLocaleString()}</Text>
-                    </View>
-                    <Feather name="chevron-right" size={14} color={Colors.textMuted} style={{ marginLeft: 6 }} />
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-          )}
-        </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.bookingName}>{SERVICE_LABELS[b.service_type]}</Text>
+                        <Text style={s.bookingDate}>{formatDate(b.service_date)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                        <View style={[s.statusPill, { backgroundColor: STATUS_COLORS[b.status] + '18' }]}>
+                          <Text style={[s.statusText, { color: STATUS_COLORS[b.status] }]}>
+                            {STATUS_LABELS[b.status]}
+                          </Text>
+                        </View>
+                        <Text style={s.bookingPrice}>₱{Number(b.base_price).toLocaleString()}</Text>
+                      </View>
+                      <Feather name="chevron-right" size={14} color={Colors.textMuted} style={{ marginLeft: 6 }} />
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            )}
+          </View>
 
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+
+      {/* Floating Book Now button */}
+      <TouchableOpacity
+        style={s.fab}
+        onPress={() => router.push('/(customer)/bookings/new')}
+        activeOpacity={0.85}
+      >
+        <Feather name="plus" size={18} color="#fff" />
+        <Text style={s.fabText}>Book a Cleaner</Text>
+      </TouchableOpacity>
+    </View>
   )
 }
 
@@ -204,24 +190,6 @@ const s = StyleSheet.create({
   heroPillText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   heroTitle: { fontSize: 24, fontWeight: '800', color: '#fff', lineHeight: 32, marginBottom: 6 },
   heroSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 20 },
-  heroBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#fff',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 16, paddingVertical: 10,
-    borderRadius: 12,
-  },
-  heroBtnText: { fontSize: 13, fontWeight: '700', color: Colors.primary },
-
-  // Quick actions
-  quickRow: { flexDirection: 'row', gap: 12 },
-  quickItem: { flex: 1, alignItems: 'center', gap: 8 },
-  quickIcon: {
-    width: 52, height: 52, borderRadius: 16,
-    backgroundColor: Colors.primaryLight,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  quickLabel: { fontSize: 11, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center' },
 
   // Section
   section: { gap: 12 },
@@ -264,4 +232,16 @@ const s = StyleSheet.create({
   },
   emptyTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
   emptySub: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18 },
+
+  // FAB
+  fab: {
+    position: 'absolute', bottom: 24,
+    alignSelf: 'center',
+    paddingHorizontal: 28, height: 54, borderRadius: 27,
+    backgroundColor: Colors.primary,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
+  },
+  fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 })
