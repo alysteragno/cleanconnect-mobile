@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   View, Text, TouchableOpacity, FlatList,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, ScrollView,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import AppHeader from '@/components/AppHeader'
 
 type Complaint = {
@@ -20,8 +21,20 @@ const STATUS_COLORS: Record<string, string> = {
   open: '#ca8a04',
   in_progress: '#7c3aed',
   resolved: '#16a34a',
-  closed: '#6b7280',
 }
+
+const STATUS_LABELS: Record<string, string> = {
+  open: 'Open',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+}
+
+const FILTER_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'open', label: 'Open' },
+  { key: 'in_progress', label: 'In Progrepnewss' },
+  { key: 'resolved', label: 'Resolved' },
+]
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-PH', {
@@ -31,10 +44,15 @@ function formatDate(d: string) {
 
 export default function SupportScreen() {
   const router = useRouter()
+  const C = useThemeColors()
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [activeFilter, setActiveFilter] = useState('all')
+
+  const openCount = complaints.filter(c => c.status === 'open').length
+  const resolvedCount = complaints.filter(c => c.status === 'resolved').length
 
   useEffect(() => { loadComplaints() }, [])
 
@@ -61,16 +79,21 @@ export default function SupportScreen() {
     setRefreshing(false)
   }
 
+  const filtered = useMemo(() => {
+    if (activeFilter === 'all') return complaints
+    return complaints.filter(c => c.status === activeFilter)
+  }, [complaints, activeFilter])
+
   if (loading) {
     return (
-      <View className="flex-1 bg-gray-50 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         title="Support"
         subtitle="Your complaints & requests"
@@ -78,8 +101,70 @@ export default function SupportScreen() {
         onBellPress={() => router.push('/(customer)/notifications')}
       />
 
+      {/* Hero banner */}
+      <View style={{
+        marginHorizontal: 16, marginTop: 14,
+        borderRadius: 20, backgroundColor: Colors.primary,
+        padding: 20, flexDirection: 'row', alignItems: 'center',
+      }}>
+        <View style={{ flex: 1, marginRight: 12 }}>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 17, marginBottom: 4 }}>
+            We're here to help
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.82)', fontSize: 13, lineHeight: 18 }}>
+            Our team typically responds within 24 hours.
+          </Text>
+          {complaints.length > 0 && (
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{openCount} Open</Text>
+              </View>
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{resolvedCount} Resolved</Text>
+              </View>
+            </View>
+          )}
+        </View>
+        <View style={{
+          width: 60, height: 60, borderRadius: 30,
+          backgroundColor: 'rgba(255,255,255,0.18)',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Feather name="headphones" size={30} color="#fff" />
+        </View>
+      </View>
+
+      {/* Filter tabs */}
+      <View style={{ height: 52 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
+        >
+          {FILTER_TABS.map(tab => (
+            <TouchableOpacity
+              key={tab.key}
+              onPress={() => setActiveFilter(tab.key)}
+              style={{
+                paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
+                backgroundColor: activeFilter === tab.key ? Colors.primary : C.white,
+                borderWidth: 1,
+                borderColor: activeFilter === tab.key ? Colors.primary : C.border,
+              }}
+            >
+              <Text style={{
+                fontSize: 13, fontWeight: '600',
+                color: activeFilter === tab.key ? '#fff' : C.textSecondary,
+              }}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <FlatList
-        data={complaints}
+        data={filtered}
         keyExtractor={item => item.id}
         contentContainerStyle={{ padding: 16, gap: 10 }}
         refreshControl={
@@ -90,32 +175,57 @@ export default function SupportScreen() {
           />
         }
         ListEmptyComponent={
-          <View className="bg-white rounded-2xl border border-gray-100 p-8 items-center mt-4">
-            <Feather name="message-square" size={32} color={Colors.textMuted} style={{ marginBottom: 8 }} />
-            <Text className="text-gray-900 font-semibold text-center">No complaints yet</Text>
-            <Text className="text-gray-400 text-sm text-center mt-1 mb-4">
-              Need help? File a support request below.
-            </Text>
-            <TouchableOpacity
-              className="bg-pink-600 rounded-xl px-6 py-3"
-              onPress={() => router.push('/(customer)/support/new')}
-            >
-              <Text className="text-white font-semibold text-sm">File a Complaint</Text>
-            </TouchableOpacity>
+          <View style={{
+            backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+            borderColor: C.borderLight, padding: 32, alignItems: 'center', marginTop: 16,
+          }}>
+            <View style={{
+              width: 56, height: 56, borderRadius: 16,
+              backgroundColor: Colors.primary + '15',
+              alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+            }}>
+              <Feather name="message-square" size={26} color={Colors.primary} />
+            </View>
+            {activeFilter === 'all' ? (
+              <>
+                <Text style={{ color: C.text, fontWeight: '600', textAlign: 'center' }}>No complaints yet</Text>
+                <Text style={{ color: C.textMuted, fontSize: 13, textAlign: 'center', marginTop: 4, marginBottom: 16 }}>
+                  Need help? File a support request below.
+                </Text>
+                <TouchableOpacity
+                  style={{ backgroundColor: Colors.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 }}
+                  onPress={() => router.push('/(customer)/support/new')}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>File a Complaint</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: C.text, fontWeight: '600', textAlign: 'center' }}>
+                  No {STATUS_LABELS[activeFilter]?.toLowerCase()} complaints
+                </Text>
+                <TouchableOpacity onPress={() => setActiveFilter('all')} style={{ marginTop: 8 }}>
+                  <Text style={{ color: Colors.primary, fontSize: 13, fontWeight: '600' }}>Clear filter</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            className="bg-white rounded-2xl border border-gray-100 p-4"
+            style={{
+              backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+              borderColor: C.borderLight, padding: 16,
+            }}
             onPress={() => router.push(`/(customer)/support/${item.id}`)}
             activeOpacity={0.7}
           >
-            <View className="flex-row items-start justify-between">
-              <View className="flex-1 mr-3">
-                <Text className="text-gray-900 font-semibold text-sm" numberOfLines={2}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={{ color: C.text, fontWeight: '600', fontSize: 13 }} numberOfLines={2}>
                   {item.subject}
                 </Text>
-                <Text className="text-gray-400 text-xs mt-1">
+                <Text style={{ color: C.textMuted, fontSize: 11, marginTop: 4 }}>
                   {formatDate(item.created_at)}
                 </Text>
               </View>
@@ -126,9 +236,8 @@ export default function SupportScreen() {
                 <Text style={{
                   fontSize: 11, fontWeight: '600',
                   color: STATUS_COLORS[item.status] ?? '#6b7280',
-                  textTransform: 'capitalize',
                 }}>
-                  {item.status.replace('_', ' ')}
+                  {STATUS_LABELS[item.status] ?? item.status}
                 </Text>
               </View>
             </View>
