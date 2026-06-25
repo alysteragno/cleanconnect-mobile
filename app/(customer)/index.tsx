@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Alert, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import { Booking, BookingStatus, ServiceType, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
+import { loadDraft, clearDraft } from '@/lib/bookingDraft'
+
+const STEP_LABELS = ['Service Details', 'Address', 'Schedule', 'Review', 'Payment']
 
 const STATUS_COLORS: Record<BookingStatus, string> = {
   pending: Colors.warning,
@@ -31,12 +35,25 @@ function formatDate(d: string) {
 
 export default function CustomerHomeScreen() {
   const router = useRouter()
+  const C = useThemeColors()
   const [name, setName] = useState('')
   const [recent, setRecent] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [draft, setDraft] = useState<{ step: number; service_type: string | null; savedAt: string } | null>(null)
 
   useEffect(() => { loadData() }, [])
+
+  useFocusEffect(useCallback(() => {
+    loadDraft().then(d => setDraft(d ? { step: d.step, service_type: d.form.service_type, savedAt: d.savedAt } : null))
+  }, []))
+
+  function handleDiscardDraft() {
+    Alert.alert('Discard draft?', 'Your saved booking progress will be lost.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: async () => { await clearDraft(); setDraft(null) } },
+    ])
+  }
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -63,6 +80,8 @@ export default function CustomerHomeScreen() {
     setLoading(false)
   }
 
+  const s = useMemo(() => makeStyles(C), [C])
+
   if (loading) {
     return (
       <View style={s.center}>
@@ -84,27 +103,84 @@ export default function CustomerHomeScreen() {
         <View style={s.body}>
 
           {/* ── Hero booking card ── */}
-          <TouchableOpacity
-            style={s.hero}
-            onPress={() => router.push('/(customer)/bookings/new')}
-            activeOpacity={0.9}
-          >
-            <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
-              style={{ position: 'absolute', bottom: -20, right: -20 }} />
+          {draft ? (
+            <View style={s.hero}>
+              <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
+                style={{ position: 'absolute', bottom: -20, right: -20 }} />
 
-            <View style={s.heroPill}>
-              <Feather name="star" size={10} color={Colors.primary} />
-              <Text style={s.heroPillText}>Maid For You Cleaning Services</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <View style={[s.heroPill, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
+                  <Feather name="clock" size={10} color="#fff" />
+                  <Text style={s.heroPillText}>Draft Saved</Text>
+                </View>
+                <TouchableOpacity onPress={handleDiscardDraft} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={s.heroTitle}>Continue your{'\n'}booking.</Text>
+              <Text style={s.heroSub}>
+                Step {draft.step} of 5 — {STEP_LABELS[draft.step - 1]}
+                {draft.service_type ? ` · ${SERVICE_LABELS[draft.service_type as ServiceType]}` : ''}
+              </Text>
+
+              {/* Step progress dots */}
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, marginBottom: 18 }}>
+                {[1, 2, 3, 4, 5].map(n => (
+                  <View key={n} style={{
+                    height: 4, flex: 1, borderRadius: 2,
+                    backgroundColor: n <= draft.step ? '#fff' : 'rgba(255,255,255,0.3)',
+                  }} />
+                ))}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  onPress={() => router.push('/(customer)/bookings/new')}
+                  style={{
+                    flex: 1, backgroundColor: '#fff', borderRadius: 12,
+                    paddingVertical: 12, alignItems: 'center', flexDirection: 'row',
+                    justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <Feather name="play" size={14} color={Colors.primary} />
+                  <Text style={{ color: Colors.primary, fontWeight: '700', fontSize: 14 }}>Resume</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDiscardDraft}
+                  style={{
+                    paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12,
+                    borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: 'rgba(255,255,255,0.85)', fontWeight: '600', fontSize: 13 }}>Start new</Text>
+                </TouchableOpacity>
+              </View>
             </View>
+          ) : (
+            <TouchableOpacity
+              style={s.hero}
+              onPress={() => router.push('/(customer)/bookings/new')}
+              activeOpacity={0.9}
+            >
+              <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
+                style={{ position: 'absolute', bottom: -20, right: -20 }} />
 
-            <Text style={s.heroTitle}>Book your next{'\n'}cleaning today.</Text>
-            <Text style={s.heroSub}>Professional · Trusted · Affordable</Text>
-          </TouchableOpacity>
+              <View style={s.heroPill}>
+                <Feather name="star" size={10} color={Colors.primary} />
+                <Text style={s.heroPillText}>Maid For You Cleaning Services</Text>
+              </View>
+
+              <Text style={s.heroTitle}>Book your next{'\n'}cleaning today.</Text>
+              <Text style={s.heroSub}>Professional · Trusted · Affordable</Text>
+            </TouchableOpacity>
+          )}
 
           {/* ── Recent bookings ── */}
           <View style={s.section}>
             <View style={s.sectionHeader}>
-              <Text style={s.sectionTitle}>Recent Bookings</Text>
+              <Text style={s.sectionTitle}>Recent Bookings </Text>
               <TouchableOpacity onPress={() => router.push('/(customer)/bookings')}>
                 <Text style={s.sectionLink}>See all</Text>
               </TouchableOpacity>
@@ -144,7 +220,7 @@ export default function CustomerHomeScreen() {
                         </View>
                         <Text style={s.bookingPrice}>₱{Number(b.base_price).toLocaleString()}</Text>
                       </View>
-                      <Feather name="chevron-right" size={14} color={Colors.textMuted} style={{ marginLeft: 6 }} />
+                      <Feather name="chevron-right" size={14} color={C.textMuted} style={{ marginLeft: 6 }} />
                     </TouchableOpacity>
                   )
                 })}
@@ -155,93 +231,90 @@ export default function CustomerHomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Floating Book Now button */}
+      {/* Floating Book Now / Resume button */}
       <TouchableOpacity
         style={s.fab}
         onPress={() => router.push('/(customer)/bookings/new')}
         activeOpacity={0.85}
       >
-        <Feather name="plus" size={18} color="#fff" />
-        <Text style={s.fabText}>Book a Cleaner</Text>
+        <Feather name={draft ? 'play' : 'plus'} size={18} color="#fff" />
+        <Text style={s.fabText}>{draft ? 'Resume Booking' : 'Book a Cleaner'}</Text>
       </TouchableOpacity>
     </View>
   )
 }
 
-const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },
-  body: { padding: 20, gap: 20 },
+function makeStyles(C: ReturnType<typeof useThemeColors>) {
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: C.background },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.background },
+    body: { padding: 20, gap: 20 },
 
-  // Hero
-  hero: {
-    backgroundColor: Colors.primary,
-    borderRadius: 20,
-    padding: 24,
-    overflow: 'hidden',
-  },
-  heroPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: 99, marginBottom: 14,
-  },
-  heroPillText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  heroTitle: { fontSize: 24, fontWeight: '800', color: '#fff', lineHeight: 32, marginBottom: 6 },
-  heroSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 20 },
+    hero: {
+      backgroundColor: Colors.primary,
+      borderRadius: 20,
+      padding: 24,
+      overflow: 'hidden',
+    },
+    heroPill: {
+      flexDirection: 'row', alignItems: 'center', gap: 5,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      alignSelf: 'flex-start',
+      paddingHorizontal: 10, paddingVertical: 4,
+      borderRadius: 99, marginBottom: 14,
+    },
+    heroPillText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+    heroTitle: { fontSize: 24, fontWeight: '800', color: '#fff', lineHeight: 32, marginBottom: 6 },
+    heroSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 20 },
 
-  // Section
-  section: { gap: 12 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  sectionLink: { fontSize: 12, fontWeight: '600', color: Colors.primary },
+    section: { gap: 12 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    sectionTitle: { fontSize: 15, fontWeight: '700', color: C.text },
+    sectionLink: { fontSize: 12, fontWeight: '600', color: Colors.primary },
 
-  // Card
-  card: {
-    backgroundColor: Colors.white, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.borderLight,
-    overflow: 'hidden',
-  },
-  bookingRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 16, paddingVertical: 14,
-  },
-  bookingDivider: { borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  svcIcon: {
-    width: 40, height: 40, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  bookingName: { fontSize: 13, fontWeight: '600', color: Colors.text },
-  bookingDate: { fontSize: 11, color: Colors.textMuted, marginTop: 2 },
-  statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99 },
-  statusText: { fontSize: 10, fontWeight: '700' },
-  bookingPrice: { fontSize: 12, fontWeight: '700', color: Colors.text },
+    card: {
+      backgroundColor: C.white, borderRadius: 16,
+      borderWidth: 1, borderColor: C.borderLight,
+      overflow: 'hidden',
+    },
+    bookingRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      paddingHorizontal: 16, paddingVertical: 14,
+    },
+    bookingDivider: { borderBottomWidth: 1, borderBottomColor: C.borderLight },
+    svcIcon: {
+      width: 40, height: 40, borderRadius: 12,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    bookingName: { fontSize: 13, fontWeight: '600', color: C.text },
+    bookingDate: { fontSize: 11, color: C.textMuted, marginTop: 2 },
+    statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99 },
+    statusText: { fontSize: 10, fontWeight: '700' },
+    bookingPrice: { fontSize: 12, fontWeight: '700', color: C.text },
 
-  // Empty
-  empty: {
-    backgroundColor: Colors.white, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.borderLight,
-    padding: 32, alignItems: 'center', gap: 8,
-  },
-  emptyIcon: {
-    width: 56, height: 56, borderRadius: 16,
-    backgroundColor: Colors.primaryLight,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 4,
-  },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  emptySub: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18 },
+    empty: {
+      backgroundColor: C.white, borderRadius: 16,
+      borderWidth: 1, borderColor: C.borderLight,
+      padding: 32, alignItems: 'center', gap: 8,
+    },
+    emptyIcon: {
+      width: 56, height: 56, borderRadius: 16,
+      backgroundColor: C.primaryLight,
+      alignItems: 'center', justifyContent: 'center',
+      marginBottom: 4,
+    },
+    emptyTitle: { fontSize: 15, fontWeight: '700', color: C.text },
+    emptySub: { fontSize: 13, color: C.textMuted, textAlign: 'center', lineHeight: 18 },
 
-  // FAB
-  fab: {
-    position: 'absolute', bottom: 24,
-    alignSelf: 'center',
-    paddingHorizontal: 28, height: 54, borderRadius: 27,
-    backgroundColor: Colors.primary,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
-  },
-  fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-})
+    fab: {
+      position: 'absolute', bottom: 24,
+      alignSelf: 'center',
+      paddingHorizontal: 28, height: 54, borderRadius: 27,
+      backgroundColor: Colors.primary,
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+      shadowColor: Colors.primary, shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
+    },
+    fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  })
+}
