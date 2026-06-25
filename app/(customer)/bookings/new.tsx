@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image,
@@ -26,6 +26,7 @@ type FormData = {
   address_province: string
   service_lat: number | null
   service_lng: number | null
+  service_address_label: string
   service_date: Date | null
   service_time: Date | null
   payment_method: string
@@ -44,6 +45,7 @@ const INITIAL_FORM: FormData = {
   address_province: '',
   service_lat: null,
   service_lng: null,
+  service_address_label: '',
   service_date: null,
   service_time: null,
   payment_method: '',
@@ -88,7 +90,16 @@ export default function NewBookingScreen() {
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
   const [showMap, setShowMap] = useState(false)
+  const [step2Visited, setStep2Visited] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
+
+  // Auto-open map the first time the user lands on step 2
+  useEffect(() => {
+    if (step === 2 && !step2Visited) {
+      setStep2Visited(true)
+      if (!form.service_lat) setShowMap(true)
+    }
+  }, [step])
   const [showTimePicker, setShowTimePicker] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -130,6 +141,7 @@ export default function NewBookingScreen() {
       if (!form.address_street.trim()) return 'Please enter a street address.'
       if (!form.address_city.trim()) return 'Please enter a city.'
       if (!form.address_province.trim()) return 'Please enter a province.'
+      if (!form.service_lat) return 'Please pin your service location on the map.'
     }
     if (step === 3) {
       if (!form.service_date) return 'Please select a date.'
@@ -226,22 +238,39 @@ export default function NewBookingScreen() {
   const stepLabels = ['Service Details', 'Address', 'Schedule', 'Review', 'Payment']
 
   const stepIndicator = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 6 }}>
-      {[1, 2, 3, 4, 5].map(n => (
-        <View key={n} style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{
-            width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-            backgroundColor: n < step ? Colors.primary + '60' : n === step ? Colors.primary : '#e5e7eb',
-          }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: n <= step ? '#fff' : '#9ca3af' }}>
-              {n}
+    <View style={{ paddingHorizontal: 24, paddingVertical: 16 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {[1, 2, 3, 4, 5].map(n => (
+          <Fragment key={n}>
+            <View style={{
+              width: 30, height: 30, borderRadius: 15,
+              alignItems: 'center', justifyContent: 'center',
+              backgroundColor: n < step ? Colors.primary : n === step ? Colors.primary : '#e5e7eb',
+              opacity: n < step ? 0.55 : 1,
+            }}>
+              {n < step
+                ? <Feather name="check" size={14} color="#fff" />
+                : <Text style={{ fontSize: 12, fontWeight: '700', color: n === step ? '#fff' : '#9ca3af' }}>{n}</Text>
+              }
+            </View>
+            {n < 5 && (
+              <View style={{ flex: 1, height: 2, backgroundColor: n < step ? Colors.primary : '#e5e7eb' }} />
+            )}
+          </Fragment>
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row', marginTop: 8 }}>
+        {stepLabels.map((label, i) => (
+          <View key={label} style={{ flex: 1, alignItems: 'center' }}>
+            <Text
+              numberOfLines={1}
+              style={{ fontSize: 9, fontWeight: '600', color: i + 1 === step ? Colors.primary : '#9ca3af' }}
+            >
+              {label}
             </Text>
           </View>
-          {n < 5 && (
-            <View style={{ width: 20, height: 2, backgroundColor: n < step ? Colors.primary : '#e5e7eb', marginHorizontal: 2 }} />
-          )}
-        </View>
-      ))}
+        ))}
+      </View>
     </View>
   )
 
@@ -565,66 +594,63 @@ export default function NewBookingScreen() {
               </View>
             ))}
 
-            <View style={{
-              backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', padding: 16,
-            }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-                Pin Location on Map (optional)
-              </Text>
-              {form.service_lat ? (
-                <View style={{ gap: 8 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Feather name="check-circle" size={14} color="#16a34a" />
-                    <Text style={{ fontSize: 13, color: '#16a34a', fontWeight: '600' }}>Location pinned</Text>
+            <TouchableOpacity
+              onPress={() => setShowMap(true)}
+              activeOpacity={0.85}
+              style={{
+                backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden',
+                borderWidth: form.service_lat ? 1.5 : 1,
+                borderColor: form.service_lat ? Colors.primary : '#e5e7eb',
+              }}
+            >
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                paddingHorizontal: 14, paddingVertical: 12,
+                backgroundColor: form.service_lat ? '#fdf2f8' : '#fff',
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  <View style={{
+                    width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: form.service_lat ? Colors.primary : '#f3f4f6',
+                  }}>
+                    <Feather name="map-pin" size={16} color={form.service_lat ? '#fff' : '#9ca3af'} />
                   </View>
-                  <Text style={{ fontSize: 11, color: '#6b7280' }} selectable>
-                    {form.service_lat.toFixed(6)}, {form.service_lng!.toFixed(6)}
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TouchableOpacity
-                      onPress={() => setShowMap(true)}
-                      style={{
-                        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                        gap: 6, paddingVertical: 9, borderRadius: 10,
-                        borderWidth: 1, borderColor: Colors.primary, backgroundColor: '#fdf2f8',
-                      }}
-                    >
-                      <Feather name="map" size={13} color={Colors.primary} />
-                      <Text style={{ color: Colors.primary, fontWeight: '600', fontSize: 13 }}>Adjust</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => { update('service_lat', null); update('service_lng', null) }}
-                      style={{
-                        flex: 1, alignItems: 'center', justifyContent: 'center',
-                        paddingVertical: 9, borderRadius: 10,
-                        borderWidth: 1, borderColor: '#e5e7eb',
-                      }}
-                    >
-                      <Text style={{ fontSize: 13, color: '#dc2626', fontWeight: '600' }}>Remove</Text>
-                    </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    {form.service_lat ? (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                          <Feather name="check-circle" size={11} color="#16a34a" />
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#16a34a' }}>Location pinned</Text>
+                        </View>
+                        <Text style={{ fontSize: 13, color: '#374151', fontWeight: '500' }} numberOfLines={2}>
+                          {form.service_address_label || `${form.service_lat.toFixed(5)}, ${form.service_lng!.toFixed(5)}`}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                          <View style={{ backgroundColor: '#fce7f3', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                            <Text style={{ fontSize: 9, fontWeight: '800', color: Colors.primary }}>REQUIRED</Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontSize: 13, color: '#6b7280' }}>Tap to pin your service location</Text>
+                      </>
+                    )}
                   </View>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  onPress={() => setShowMap(true)}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                    paddingVertical: 12, borderRadius: 10,
-                    backgroundColor: '#fdf2f8', borderWidth: 1, borderColor: Colors.primary, gap: 8,
-                  }}
-                >
-                  <Feather name="map-pin" size={15} color={Colors.primary} />
-                  <Text style={{ color: Colors.primary, fontWeight: '600', fontSize: 14 }}>
-                    Open Map to Pin Location
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                <Feather name="chevron-right" size={16} color={form.service_lat ? Colors.primary : '#9ca3af'} />
+              </View>
+            </TouchableOpacity>
 
             <LocationMapPicker
               visible={showMap}
               initial={form.service_lat ? { latitude: form.service_lat, longitude: form.service_lng! } : null}
-              onConfirm={coord => { update('service_lat', coord.latitude); update('service_lng', coord.longitude); setShowMap(false) }}
+              onConfirm={(coord, address) => {
+                update('service_lat', coord.latitude)
+                update('service_lng', coord.longitude)
+                update('service_address_label', address)
+                setShowMap(false)
+              }}
               onClose={() => setShowMap(false)}
             />
           </View>

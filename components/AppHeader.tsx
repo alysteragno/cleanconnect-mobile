@@ -3,22 +3,16 @@ import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
 
 type Props = {
-  // Standard tab screen
   title?: string
   subtitle?: string
-  // Home screen greeting variant
   greeting?: string
   name?: string
-  // Bell
   unreadCount?: number
   onBellPress?: () => void
   hideBell?: boolean
-  // Detail screen back button
   showBack?: boolean
   onBackPress?: () => void
-  // Optional right slot (status badges etc.)
   rightContent?: React.ReactNode
-  // Override background (e.g. purple for active job)
   backgroundColor?: string
 }
 
@@ -55,7 +49,6 @@ export default function AppHeader({
       elevation: 6,
     }}>
       {isHome ? (
-        // Home variant: greeting + name on left, bell on right
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
             <Text style={{ color: '#fbcfe8', fontSize: 13 }}>{greeting}</Text>
@@ -64,7 +57,6 @@ export default function AppHeader({
           {!hideBell && <Bell count={unreadCount} onPress={onBellPress} />}
         </View>
       ) : showBack ? (
-        // Detail variant: back arrow + title + optional right content
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <TouchableOpacity onPress={onBackPress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Feather name="arrow-left" size={BELL_SIZE} color="#fff" />
@@ -80,7 +72,6 @@ export default function AppHeader({
           {rightContent ?? null}
         </View>
       ) : (
-        // Standard tab variant: title on left, bell on right
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <View>
             <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>{title}</Text>

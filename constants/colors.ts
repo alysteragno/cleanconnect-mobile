@@ -20,3 +20,26 @@ export const Colors = {
   warning: '#ca8a04',       // yellow-600
   warningBg: '#fefce8',     // yellow-50
 }
+
+export const DarkColors = {
+  primary: '#f472b6',       // pink-400 — softer on dark backgrounds
+  primaryDark: '#ec4899',   // pink-500
+  primaryLight: '#2d1b25',  // very dark muted pink — subtle accent bg
+  primaryBg: '#221520',     // near-black with a hint of pink
+
+  text: '#f1f5f9',          // slate-100
+  textSecondary: '#94a3b8', // slate-400
+  textMuted: '#64748b',     // slate-500
+
+  border: '#334155',        // slate-700
+  borderLight: '#1e293b',   // slate-800
+  white: '#1e293b',         // slate-800 — card surface
+  background: '#0f172a',    // slate-900 — page bg
+
+  success: '#4ade80',       // green-400
+  successBg: '#052e16',
+  error: '#f87171',         // red-400
+  errorBg: '#450a0a',
+  warning: '#fbbf24',       // amber-400
+  warningBg: '#422006',
+}
