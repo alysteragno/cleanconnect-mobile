@@ -44,7 +44,8 @@
           "photosPermission": "CleanConnect needs access to your photos to upload furniture images for your booking.",
           "cameraPermission": "CleanConnect needs camera access to take photos of furniture for your booking."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "router": {},
