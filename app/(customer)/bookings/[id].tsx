@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import AppHeader from '@/components/AppHeader'
 import { Booking, BookingStatus, Feedback, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
 
@@ -42,6 +43,7 @@ function formatTime(t: string) {
 export default function BookingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
+  const C = useThemeColors()
 
   const [booking, setBooking] = useState<BookingDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -58,10 +60,7 @@ export default function BookingDetailScreen() {
   async function loadBooking() {
     const { data } = await supabase
       .from('bookings')
-      .select(`
-        *,
-        cleaner_assignments (status, profiles (full_name, id))
-      `)
+      .select(`*, cleaner_assignments (status, profiles (full_name, id))`)
       .eq('id', id)
       .maybeSingle()
 
@@ -109,7 +108,7 @@ export default function BookingDetailScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
@@ -117,8 +116,8 @@ export default function BookingDetailScreen() {
 
   if (!booking) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={{ color: '#6b7280', fontSize: 15 }}>Booking not found.</Text>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: C.textSecondary, fontSize: 15 }}>Booking not found.</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
           <Text style={{ color: Colors.primary, fontWeight: '600' }}>Go Back</Text>
         </TouchableOpacity>
@@ -131,7 +130,7 @@ export default function BookingDetailScreen() {
   const currentProgressIndex = PROGRESS_STEPS.indexOf(booking.status as BookingStatus)
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         showBack
         onBackPress={() => router.back()}
@@ -150,7 +149,7 @@ export default function BookingDetailScreen() {
         {/* Status tracker */}
         {booking.status === 'cancelled' ? (
           <View style={{
-            backgroundColor: '#fee2e2', borderRadius: 14, padding: 16,
+            backgroundColor: C.errorBg, borderRadius: 14, padding: 16,
             borderWidth: 1, borderColor: '#fca5a5', alignItems: 'center',
           }}>
             <Text style={{ fontSize: 15, fontWeight: '700', color: '#dc2626' }}>Booking Cancelled</Text>
@@ -159,46 +158,43 @@ export default function BookingDetailScreen() {
             </Text>
           </View>
         ) : (
-          <View style={{ backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb', padding: 20 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 16 }}>
+          <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 20 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 16 }}>
               Booking Progress
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row' }}>
               {PROGRESS_STEPS.map((s, i) => (
                 <View key={s} style={{ flex: 1, alignItems: 'center' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
-                    {i > 0 && (
-                      <View style={{
-                        flex: 1, height: 2,
-                        backgroundColor: i <= currentProgressIndex ? Colors.primary : '#e5e7eb',
-                      }} />
-                    )}
                     <View style={{
-                      width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
-                      backgroundColor: i <= currentProgressIndex ? Colors.primary : '#f3f4f6',
+                      flex: 1, height: 2,
+                      backgroundColor: i === 0 ? 'transparent' : i <= currentProgressIndex ? Colors.primary : C.border,
+                    }} />
+                    <View style={{
+                      width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: i <= currentProgressIndex ? Colors.primary : C.borderLight,
                       borderWidth: 2,
-                      borderColor: i <= currentProgressIndex ? Colors.primary : '#e5e7eb',
+                      borderColor: i <= currentProgressIndex ? Colors.primary : C.border,
                     }}>
                       {i < currentProgressIndex
-                        ? <Feather name="check" size={14} color="#fff" />
+                        ? <Feather name="check" size={13} color="#fff" />
                         : <View style={{
-                            width: 8, height: 8, borderRadius: 4,
-                            backgroundColor: i === currentProgressIndex ? '#fff' : '#d1d5db',
+                            width: 7, height: 7, borderRadius: 3.5,
+                            backgroundColor: i === currentProgressIndex ? '#fff' : C.textMuted,
                           }} />
                       }
                     </View>
-                    {i < PROGRESS_STEPS.length - 1 && (
-                      <View style={{
-                        flex: 1, height: 2,
-                        backgroundColor: i < currentProgressIndex ? Colors.primary : '#e5e7eb',
-                      }} />
-                    )}
+                    <View style={{
+                      flex: 1, height: 2,
+                      backgroundColor: i === PROGRESS_STEPS.length - 1 ? 'transparent' : i < currentProgressIndex ? Colors.primary : C.border,
+                    }} />
                   </View>
                   <Text style={{
-                    fontSize: 10, fontWeight: '600', marginTop: 6, textAlign: 'center',
-                    color: i <= currentProgressIndex ? Colors.primary : '#9ca3af',
+                    fontSize: 9, fontWeight: '600', marginTop: 6, textAlign: 'center',
+                    color: i <= currentProgressIndex ? Colors.primary : C.textMuted,
+                    lineHeight: 13,
                   }}>
-                    {STATUS_LABELS[s].replace(' ', '\n')}
+                    {STATUS_LABELS[s]}
                   </Text>
                 </View>
               ))}
@@ -230,16 +226,14 @@ export default function BookingDetailScreen() {
           </View>
         )}
 
-        {/* Service details */}
-        <DetailCard title="Service Details" rows={[
+        <DetailCard title="Service Details" C={C} rows={[
           { label: 'Service', value: SERVICE_LABELS[booking.service_type] },
           { label: 'Space', value: booking.space_type === 'residential' ? 'Residential' : 'Commercial' },
           { label: 'Size', value: `${booking.property_sqm} sqm` },
           ...(cleanerName ? [{ label: 'Cleaner', value: cleanerName }] : []),
         ]} />
 
-        {/* Address */}
-        <DetailCard title="Service Address" rows={[
+        <DetailCard title="Service Address" C={C} rows={[
           {
             label: 'Address',
             value: [booking.address_unit, booking.address_street, booking.address_city, booking.address_province]
@@ -251,26 +245,24 @@ export default function BookingDetailScreen() {
           }] : []),
         ]} />
 
-        {/* Schedule + ETA */}
-        <DetailCard title="Schedule" rows={[
+        <DetailCard title="Schedule" C={C} rows={[
           { label: 'Date', value: formatDate(booking.service_date) },
           { label: 'Time', value: formatTime(booking.service_time) },
           { label: 'Duration', value: `~${booking.duration_hours}h` },
           { label: 'ETA', value: booking.status === 'cancelled' ? '—' : formatTime(booking.service_time) },
         ]} />
 
-        {/* Payment */}
-        <DetailCard title="Payment" rows={[
+        <DetailCard title="Payment" C={C} rows={[
           { label: 'Method', value: booking.payment_method.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) },
           { label: 'Est. Price', value: `₱${Number(booking.base_price).toLocaleString()}` },
           { label: 'Status', value: booking.payment_status.replace(/\b\w/g, c => c.toUpperCase()), highlight: booking.payment_status === 'paid' },
         ]} />
 
-        {/* Payment instructions for GCash / bank */}
+        {/* Payment instructions */}
         {(booking.payment_method === 'gcash' || booking.payment_method === 'bank_transfer') &&
           Object.keys(paymentSettings).length > 0 && (
           <View style={{
-            backgroundColor: '#fdf2f8', borderRadius: 16, borderWidth: 1,
+            backgroundColor: C.primaryBg, borderRadius: 16, borderWidth: 1,
             borderColor: Colors.primary + '40', padding: 16,
           }}>
             <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary, marginBottom: 10 }}>
@@ -278,8 +270,8 @@ export default function BookingDetailScreen() {
             </Text>
             {booking.payment_method === 'gcash' && paymentSettings.gcash_number && (
               <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                <Text style={{ width: 90, fontSize: 13, color: '#6b7280' }}>GCash #</Text>
-                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#111827' }}>
+                <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>GCash #</Text>
+                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>
                   {paymentSettings.gcash_number}
                 </Text>
               </View>
@@ -288,46 +280,42 @@ export default function BookingDetailScreen() {
               <>
                 {paymentSettings.bank_name && (
                   <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                    <Text style={{ width: 90, fontSize: 13, color: '#6b7280' }}>Bank</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#111827' }}>{paymentSettings.bank_name}</Text>
+                    <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>Bank</Text>
+                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>{paymentSettings.bank_name}</Text>
                   </View>
                 )}
                 {paymentSettings.bank_account && (
                   <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                    <Text style={{ width: 90, fontSize: 13, color: '#6b7280' }}>Account #</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#111827' }}>{paymentSettings.bank_account}</Text>
+                    <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>Account #</Text>
+                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>{paymentSettings.bank_account}</Text>
                   </View>
                 )}
                 {paymentSettings.bank_account_name && (
                   <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                    <Text style={{ width: 90, fontSize: 13, color: '#6b7280' }}>Account Name</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#111827' }}>{paymentSettings.bank_account_name}</Text>
+                    <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>Account Name</Text>
+                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>{paymentSettings.bank_account_name}</Text>
                   </View>
                 )}
               </>
             )}
-            <Text style={{ fontSize: 11, color: '#9c4a7a', marginTop: 6 }}>
-              Send your proof of payment to admin for verification.
-            </Text>
           </View>
         )}
 
-        {/* Special notes */}
         {booking.special_notes && (
           <View style={{
-            backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb', padding: 16,
+            backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16,
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 6 }}>Special Notes</Text>
-            <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 20 }}>{booking.special_notes}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 6 }}>Special Notes</Text>
+            <Text style={{ fontSize: 13, color: C.textSecondary, lineHeight: 20 }}>{booking.special_notes}</Text>
           </View>
         )}
 
         {/* Rate & Feedback */}
         {booking.status === 'completed' && (
           <View style={{
-            backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb', padding: 20,
+            backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 20,
           }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 14 }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 14 }}>
               Rate Your Experience
             </Text>
 
@@ -339,29 +327,28 @@ export default function BookingDetailScreen() {
                       key={n}
                       name={n <= existingFeedback.rating ? 'star' : 'star-outline'}
                       size={28}
-                      color={n <= existingFeedback.rating ? '#f59e0b' : '#d1d5db'}
+                      color={n <= existingFeedback.rating ? '#f59e0b' : C.border}
                     />
                   ))}
                 </View>
                 {existingFeedback.comment && (
-                  <Text style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', fontStyle: 'italic' }}>
+                  <Text style={{ fontSize: 13, color: C.textSecondary, textAlign: 'center', fontStyle: 'italic' }}>
                     "{existingFeedback.comment}"
                   </Text>
                 )}
-                <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 8 }}>
+                <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>
                   Thank you for your feedback!
                 </Text>
               </View>
             ) : existingFeedback === null ? (
               <View>
-                {/* Star selector */}
                 <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 16 }}>
                   {[1, 2, 3, 4, 5].map(n => (
                     <TouchableOpacity key={n} onPress={() => setRating(n)}>
                       <Ionicons
                         name={n <= rating ? 'star' : 'star-outline'}
                         size={36}
-                        color={n <= rating ? '#f59e0b' : '#d1d5db'}
+                        color={n <= rating ? '#f59e0b' : C.border}
                       />
                     </TouchableOpacity>
                   ))}
@@ -371,14 +358,14 @@ export default function BookingDetailScreen() {
                   value={comment}
                   onChangeText={setComment}
                   placeholder="Share your experience (optional)..."
-                  placeholderTextColor="#9ca3af"
+                  placeholderTextColor={C.textMuted}
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"
                   style={{
-                    backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb',
+                    backgroundColor: C.background, borderWidth: 1, borderColor: C.border,
                     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
-                    fontSize: 14, color: '#111827', minHeight: 80, marginBottom: 12,
+                    fontSize: 14, color: C.text, minHeight: 80, marginBottom: 12,
                   }}
                 />
 
@@ -409,30 +396,31 @@ export default function BookingDetailScreen() {
   )
 }
 
-function DetailCard({ title, rows }: {
+function DetailCard({ title, rows, C }: {
   title: string
   rows: Array<{ label: string; value: string; highlight?: boolean }>
+  C: ReturnType<typeof useThemeColors>
 }) {
   return (
     <View style={{
-      backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-      borderColor: '#e5e7eb', overflow: 'hidden',
+      backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+      borderColor: C.border, overflow: 'hidden',
     }}>
       <View style={{
-        backgroundColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 10,
-        borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+        backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 10,
+        borderBottomWidth: 1, borderBottomColor: C.border,
       }}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>{title}</Text>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>{title}</Text>
       </View>
       {rows.map((row, i) => (
         <View key={row.label} style={{
           flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 11,
-          borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: '#f3f4f6',
+          borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: C.borderLight,
         }}>
-          <Text style={{ width: 90, fontSize: 13, color: '#6b7280' }}>{row.label}</Text>
+          <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>{row.label}</Text>
           <Text style={{
             flex: 1, fontSize: 13, fontWeight: '600',
-            color: row.highlight ? '#16a34a' : '#111827',
+            color: row.highlight ? '#16a34a' : C.text,
           }}>
             {row.value}
           </Text>

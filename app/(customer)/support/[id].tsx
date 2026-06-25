@@ -4,8 +4,10 @@ import {
   TextInput, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import AppHeader from '@/components/AppHeader'
 
 type Complaint = {
@@ -29,6 +31,13 @@ const STATUS_COLORS: Record<string, string> = {
   closed: '#6b7280',
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  open: 'Open',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+  closed: 'Closed',
+}
+
 function formatTime(d: string) {
   return new Date(d).toLocaleString('en-PH', {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
@@ -38,6 +47,7 @@ function formatTime(d: string) {
 export default function ComplaintDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
+  const C = useThemeColors()
   const flatListRef = useRef<FlatList>(null)
 
   const [userId, setUserId] = useState<string | null>(null)
@@ -99,7 +109,7 @@ export default function ComplaintDetailScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
@@ -107,8 +117,8 @@ export default function ComplaintDetailScreen() {
 
   if (!complaint) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={{ color: '#6b7280' }}>Complaint not found.</Text>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: C.textSecondary }}>Complaint not found.</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 12 }}>
           <Text style={{ color: Colors.primary, fontWeight: '600' }}>Go Back</Text>
         </TouchableOpacity>
@@ -121,7 +131,7 @@ export default function ComplaintDetailScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: '#f9fafb' }}
+      style={{ flex: 1, backgroundColor: C.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
@@ -131,13 +141,17 @@ export default function ComplaintDetailScreen() {
         title={complaint.subject}
         hideBell
         rightContent={
-          <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: statusColor + '30' }}>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', textTransform: 'capitalize' }}>{complaint.status.replace('_', ' ')}</Text>
+          <View style={{
+            paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99,
+            backgroundColor: statusColor + '18',
+          }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: statusColor, textTransform: 'capitalize' }}>
+              {STATUS_LABELS[complaint.status] ?? complaint.status}
+            </Text>
           </View>
         }
       />
 
-      {/* Messages */}
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -146,7 +160,7 @@ export default function ComplaintDetailScreen() {
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         ListEmptyComponent={
           <View style={{ alignItems: 'center', marginTop: 40 }}>
-            <Text style={{ color: '#9ca3af', fontSize: 14 }}>No messages yet.</Text>
+            <Text style={{ color: C.textMuted, fontSize: 14 }}>No messages yet.</Text>
           </View>
         }
         renderItem={({ item }) => {
@@ -155,24 +169,24 @@ export default function ComplaintDetailScreen() {
             <View style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
               <View style={{
                 maxWidth: '80%',
-                backgroundColor: isMe ? Colors.primary : '#fff',
+                backgroundColor: isMe ? Colors.primary : C.white,
                 borderRadius: 16,
                 borderBottomRightRadius: isMe ? 4 : 16,
                 borderBottomLeftRadius: isMe ? 16 : 4,
                 paddingHorizontal: 14, paddingVertical: 10,
                 borderWidth: isMe ? 0 : 1,
-                borderColor: '#e5e7eb',
+                borderColor: C.border,
               }}>
                 {!isMe && (
                   <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, marginBottom: 4 }}>
                     Admin
                   </Text>
                 )}
-                <Text style={{ fontSize: 14, color: isMe ? '#fff' : '#111827', lineHeight: 20 }}>
+                <Text style={{ fontSize: 14, color: isMe ? '#fff' : C.text, lineHeight: 20 }}>
                   {item.message}
                 </Text>
               </View>
-              <Text style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, marginHorizontal: 4 }}>
+              <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3, marginHorizontal: 4 }}>
                 {formatTime(item.created_at)}
               </Text>
             </View>
@@ -180,32 +194,31 @@ export default function ComplaintDetailScreen() {
         }}
       />
 
-      {/* Input */}
       {isClosed ? (
         <View style={{
-          paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#fff',
-          borderTopWidth: 1, borderTopColor: '#e5e7eb', alignItems: 'center',
+          paddingHorizontal: 20, paddingVertical: 14, backgroundColor: C.white,
+          borderTopWidth: 1, borderTopColor: C.border, alignItems: 'center',
         }}>
-          <Text style={{ fontSize: 13, color: '#9ca3af' }}>
-            This complaint is {complaint.status}. No further replies.
+          <Text style={{ fontSize: 13, color: C.textMuted }}>
+            This complaint is {STATUS_LABELS[complaint.status]?.toLowerCase()}. No further replies.
           </Text>
         </View>
       ) : (
         <View style={{
           flexDirection: 'row', alignItems: 'flex-end', gap: 8,
           paddingHorizontal: 16, paddingVertical: 12,
-          backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb',
+          backgroundColor: C.white, borderTopWidth: 1, borderTopColor: C.border,
         }}>
           <TextInput
             value={draft}
             onChangeText={setDraft}
             placeholder="Type a message..."
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={C.textMuted}
             multiline
             style={{
-              flex: 1, backgroundColor: '#f3f4f6', borderRadius: 20,
+              flex: 1, backgroundColor: C.background, borderRadius: 20,
               paddingHorizontal: 14, paddingVertical: 10,
-              fontSize: 14, color: '#111827', maxHeight: 100,
+              fontSize: 14, color: C.text, maxHeight: 100,
             }}
           />
           <TouchableOpacity
@@ -213,13 +226,13 @@ export default function ComplaintDetailScreen() {
             disabled={sending || !draft.trim()}
             style={{
               width: 40, height: 40, borderRadius: 20,
-              backgroundColor: draft.trim() ? Colors.primary : '#e5e7eb',
+              backgroundColor: draft.trim() ? Colors.primary : C.border,
               alignItems: 'center', justifyContent: 'center',
             }}
           >
             {sending
               ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={{ color: draft.trim() ? '#fff' : '#9ca3af', fontSize: 18, marginLeft: 2 }}>›</Text>
+              : <Feather name="send" size={16} color={draft.trim() ? '#fff' : C.textMuted} />
             }
           </TouchableOpacity>
         </View>

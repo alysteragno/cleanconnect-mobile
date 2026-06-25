@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import { Booking, BookingStatus, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
 
@@ -42,6 +43,7 @@ function formatTime(t: string) {
 
 export default function BookingsScreen() {
   const router = useRouter()
+  const C = useThemeColors()
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -87,14 +89,14 @@ export default function BookingsScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-gray-50 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         title="My Bookings"
         unreadCount={unreadCount}
@@ -102,7 +104,7 @@ export default function BookingsScreen() {
       />
 
       {/* Filter tabs */}
-      <View className="bg-white border-b border-gray-100">
+      <View style={{ backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -116,15 +118,15 @@ export default function BookingsScreen() {
                 paddingHorizontal: 14,
                 paddingVertical: 6,
                 borderRadius: 20,
-                backgroundColor: activeFilter === tab.key ? Colors.primary : '#fff',
+                backgroundColor: activeFilter === tab.key ? Colors.primary : C.white,
                 borderWidth: 1,
-                borderColor: activeFilter === tab.key ? Colors.primary : '#e5e7eb',
+                borderColor: activeFilter === tab.key ? Colors.primary : C.border,
               }}
             >
               <Text style={{
                 fontSize: 13,
                 fontWeight: '600',
-                color: activeFilter === tab.key ? '#fff' : '#6b7280',
+                color: activeFilter === tab.key ? '#fff' : C.textSecondary,
               }}>
                 {tab.label}
               </Text>
@@ -141,28 +143,37 @@ export default function BookingsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.primary} />
         }
         ListEmptyComponent={
-          <View className="bg-white rounded-2xl border border-gray-100 p-8 items-center mt-4">
-            <Text className="text-3xl mb-3">📋</Text>
+          <View style={{
+            backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+            borderColor: C.borderLight, padding: 32, alignItems: 'center', marginTop: 16,
+          }}>
+            <View style={{
+              width: 56, height: 56, borderRadius: 16,
+              backgroundColor: Colors.primary + '15',
+              alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+            }}>
+              <Feather name="calendar" size={26} color={Colors.primary} />
+            </View>
             {activeFilter === 'all' ? (
               <>
-                <Text className="text-gray-900 font-semibold text-center">No bookings yet</Text>
-                <Text className="text-gray-400 text-sm text-center mt-1 mb-4">
+                <Text style={{ color: C.text, fontWeight: '600', textAlign: 'center' }}>No bookings yet</Text>
+                <Text style={{ color: C.textMuted, fontSize: 13, textAlign: 'center', marginTop: 4, marginBottom: 16 }}>
                   Book your first cleaning to get started.
                 </Text>
                 <TouchableOpacity
-                  className="bg-pink-600 rounded-xl px-6 py-3"
+                  style={{ backgroundColor: Colors.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 }}
                   onPress={() => router.push('/(customer)/bookings/new')}
                 >
-                  <Text className="text-white font-semibold text-sm">Book Now</Text>
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Book Now</Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text className="text-gray-900 font-semibold text-center">
+                <Text style={{ color: C.text, fontWeight: '600', textAlign: 'center' }}>
                   No {STATUS_LABELS[activeFilter as BookingStatus]?.toLowerCase()} bookings
                 </Text>
-                <TouchableOpacity onPress={() => setActiveFilter('all')} className="mt-2">
-                  <Text className="text-pink-600 text-sm font-semibold">Clear filter</Text>
+                <TouchableOpacity onPress={() => setActiveFilter('all')} style={{ marginTop: 8 }}>
+                  <Text style={{ color: Colors.primary, fontSize: 13, fontWeight: '600' }}>Clear filter</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -170,32 +181,30 @@ export default function BookingsScreen() {
         }
         renderItem={({ item: b }) => (
           <TouchableOpacity
-            className="bg-white rounded-2xl border border-gray-100 p-4"
+            style={{
+              backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+              borderColor: C.borderLight, padding: 16,
+            }}
             onPress={() => router.push(`/(customer)/bookings/${b.id}`)}
             activeOpacity={0.7}
           >
-            <View className="flex-row items-start justify-between">
-              <View className="flex-1 mr-3">
-                <Text className="text-gray-900 font-semibold text-sm">
+            <View style={{ flexDirection: 'row', alignItems: 'start', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={{ color: C.text, fontWeight: '600', fontSize: 13 }}>
                   {SERVICE_LABELS[b.service_type]}
                 </Text>
-                <Text className="text-gray-400 text-xs mt-0.5">
+                <Text style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
                   {formatDate(b.service_date)} · {formatTime(b.service_time)}
                 </Text>
               </View>
-              <View className="items-end">
-                <Text className="text-gray-900 font-bold text-sm">
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ color: C.text, fontWeight: '700', fontSize: 13 }}>
                   ₱{Number(b.base_price).toLocaleString()}
                 </Text>
-                <View
-                  style={{
-                    marginTop: 4,
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                    borderRadius: 99,
-                    backgroundColor: STATUS_COLORS[b.status] + '18',
-                  }}
-                >
+                <View style={{
+                  marginTop: 4, paddingHorizontal: 8, paddingVertical: 2,
+                  borderRadius: 99, backgroundColor: STATUS_COLORS[b.status] + '18',
+                }}>
                   <Text style={{ fontSize: 11, fontWeight: '600', color: STATUS_COLORS[b.status] }}>
                     {STATUS_LABELS[b.status]}
                   </Text>
@@ -209,21 +218,12 @@ export default function BookingsScreen() {
       {/* FAB — Book Now */}
       <TouchableOpacity
         style={{
-          position: 'absolute',
-          bottom: 24,
-          right: 24,
-          backgroundColor: Colors.primary,
-          borderRadius: 28,
-          paddingVertical: 14,
-          paddingHorizontal: 20,
-          shadowColor: Colors.primary,
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.35,
-          shadowRadius: 8,
-          elevation: 6,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 6,
+          position: 'absolute', bottom: 24, right: 24,
+          backgroundColor: Colors.primary, borderRadius: 28,
+          paddingVertical: 14, paddingHorizontal: 20,
+          shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+          flexDirection: 'row', alignItems: 'center', gap: 6,
         }}
         onPress={() => router.push('/(customer)/bookings/new')}
       >

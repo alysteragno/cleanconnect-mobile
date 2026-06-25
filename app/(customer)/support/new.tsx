@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import { SERVICE_LABELS, ServiceType } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
 
@@ -24,15 +25,14 @@ function formatDate(d: string) {
 
 export default function NewComplaintScreen() {
   const router = useRouter()
+  const C = useThemeColors()
   const [bookings, setBookings] = useState<BookingOption[]>([])
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    loadBookings()
-  }, [])
+  useEffect(() => { loadBookings() }, [])
 
   async function loadBookings() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -83,8 +83,10 @@ export default function NewComplaintScreen() {
     router.replace(`/(customer)/support/${complaint.id}`)
   }
 
+  const selectedBooking = bookings.find(b => b.id === selectedBookingId)
+
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         title="File a Complaint"
         showBack
@@ -94,15 +96,15 @@ export default function NewComplaintScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
 
-        {/* Related booking (optional) */}
+        {/* Related booking */}
         <View>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 8 }}>
             Related Booking (optional)
           </Text>
           <TouchableOpacity
             style={{
-              backgroundColor: '#fff', borderRadius: 12, borderWidth: 1,
-              borderColor: selectedBookingId ? Colors.primary : '#e5e7eb',
+              backgroundColor: C.white, borderRadius: 12, borderWidth: 1,
+              borderColor: selectedBookingId ? Colors.primary : C.border,
               paddingHorizontal: 14, paddingVertical: 12,
               flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
             }}
@@ -121,55 +123,50 @@ export default function NewComplaintScreen() {
               )
             }}
           >
-            <Text style={{
-              fontSize: 14, color: selectedBookingId ? '#111827' : '#9ca3af',
-            }}>
-              {selectedBookingId
-                ? (() => {
-                    const b = bookings.find(x => x.id === selectedBookingId)
-                    return b ? `${SERVICE_LABELS[b.service_type]} — ${formatDate(b.service_date)}` : 'Selected'
-                  })()
+            <Text style={{ fontSize: 14, color: selectedBookingId ? C.text : C.textMuted }}>
+              {selectedBooking
+                ? `${SERVICE_LABELS[selectedBooking.service_type]} — ${formatDate(selectedBooking.service_date)}`
                 : 'Select a booking...'}
             </Text>
-            <Feather name="chevron-down" size={16} color="#9ca3af" />
+            <Feather name="chevron-down" size={16} color={C.textMuted} />
           </TouchableOpacity>
         </View>
 
         {/* Subject */}
         <View>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 8 }}>
             Subject <Text style={{ color: Colors.primary }}>*</Text>
           </Text>
           <TextInput
             value={subject}
             onChangeText={setSubject}
             placeholder="Brief description of your concern"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={C.textMuted}
             style={{
-              backgroundColor: '#fff', borderRadius: 12, borderWidth: 1,
-              borderColor: '#e5e7eb', paddingHorizontal: 14, paddingVertical: 12,
-              fontSize: 14, color: '#111827',
+              backgroundColor: C.white, borderRadius: 12, borderWidth: 1,
+              borderColor: C.border, paddingHorizontal: 14, paddingVertical: 12,
+              fontSize: 14, color: C.text,
             }}
           />
         </View>
 
         {/* Message */}
         <View>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 8 }}>
             Message <Text style={{ color: Colors.primary }}>*</Text>
           </Text>
           <TextInput
             value={message}
             onChangeText={setMessage}
             placeholder="Describe your concern in detail..."
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={C.textMuted}
             multiline
             numberOfLines={5}
             textAlignVertical="top"
             style={{
-              backgroundColor: '#fff', borderRadius: 12, borderWidth: 1,
-              borderColor: '#e5e7eb', paddingHorizontal: 14, paddingVertical: 12,
-              fontSize: 14, color: '#111827', minHeight: 120,
+              backgroundColor: C.white, borderRadius: 12, borderWidth: 1,
+              borderColor: C.border, paddingHorizontal: 14, paddingVertical: 12,
+              fontSize: 14, color: C.text, minHeight: 120,
             }}
           />
         </View>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   View, Text, TouchableOpacity, FlatList,
-  ActivityIndicator, RefreshControl, ScrollView,
+  ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
@@ -32,7 +32,7 @@ const STATUS_LABELS: Record<string, string> = {
 const FILTER_TABS = [
   { key: 'all', label: 'All' },
   { key: 'open', label: 'Open' },
-  { key: 'in_progress', label: 'In Progrepnewss' },
+  { key: 'in_progress', label: 'In Progress' },
   { key: 'resolved', label: 'Resolved' },
 ]
 
@@ -135,32 +135,26 @@ export default function SupportScreen() {
       </View>
 
       {/* Filter tabs */}
-      <View style={{ height: 52 }}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
-        >
-          {FILTER_TABS.map(tab => (
-            <TouchableOpacity
-              key={tab.key}
-              onPress={() => setActiveFilter(tab.key)}
-              style={{
-                paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-                backgroundColor: activeFilter === tab.key ? Colors.primary : C.white,
-                borderWidth: 1,
-                borderColor: activeFilter === tab.key ? Colors.primary : C.border,
-              }}
-            >
-              <Text style={{
-                fontSize: 13, fontWeight: '600',
-                color: activeFilter === tab.key ? '#fff' : C.textSecondary,
-              }}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+        {FILTER_TABS.map(tab => (
+          <TouchableOpacity
+            key={tab.key}
+            onPress={() => setActiveFilter(tab.key)}
+            style={{
+              flex: 1, paddingVertical: 9, borderRadius: 20, alignItems: 'center',
+              backgroundColor: activeFilter === tab.key ? Colors.primary : C.white,
+              borderWidth: 1,
+              borderColor: activeFilter === tab.key ? Colors.primary : C.border,
+            }}
+          >
+            <Text style={{
+              fontSize: 13, fontWeight: '600',
+              color: activeFilter === tab.key ? '#fff' : C.textSecondary,
+            }}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <FlatList

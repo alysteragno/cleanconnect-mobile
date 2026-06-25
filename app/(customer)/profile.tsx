@@ -7,10 +7,19 @@ import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
+import { useTheme, Theme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
+
+const THEME_OPTIONS: Array<{ key: Theme; label: string; icon: string }> = [
+  { key: 'light', label: 'Light', icon: 'sun' },
+  { key: 'dark', label: 'Dark', icon: 'moon' },
+]
 
 export default function CustomerProfileScreen() {
   const router = useRouter()
+  const C = useThemeColors()
+  const { theme, setTheme } = useTheme()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [email, setEmail] = useState('')
@@ -78,14 +87,14 @@ export default function CustomerProfileScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-gray-50 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         title="My Profile"
         unreadCount={unreadCount}
@@ -96,8 +105,8 @@ export default function CustomerProfileScreen() {
 
         {/* Avatar block */}
         <View style={{
-          backgroundColor: '#fff', borderRadius: 20, borderWidth: 1,
-          borderColor: '#e5e7eb', padding: 24, alignItems: 'center',
+          backgroundColor: C.white, borderRadius: 20, borderWidth: 1,
+          borderColor: C.border, padding: 24, alignItems: 'center',
         }}>
           <View style={{
             width: 72, height: 72, borderRadius: 36,
@@ -108,27 +117,27 @@ export default function CustomerProfileScreen() {
               {fullName.charAt(0).toUpperCase() || '?'}
             </Text>
           </View>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>{fullName}</Text>
-          <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 2 }}>{email}</Text>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: C.text }}>{fullName}</Text>
+          <Text style={{ fontSize: 14, color: C.textSecondary, marginTop: 2 }}>{email}</Text>
           <View style={{
             marginTop: 8, paddingHorizontal: 10, paddingVertical: 3,
-            backgroundColor: Colors.primary + '15', borderRadius: 99,
+            backgroundColor: Colors.primary + '20', borderRadius: 99,
           }}>
             <Text style={{ fontSize: 12, fontWeight: '600', color: Colors.primary }}>Customer</Text>
           </View>
         </View>
 
-        {/* Info card */}
+        {/* Account details */}
         <View style={{
-          backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-          borderColor: '#e5e7eb', overflow: 'hidden',
+          backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+          borderColor: C.border, overflow: 'hidden',
         }}>
           <View style={{
             flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
             paddingHorizontal: 16, paddingVertical: 12,
-            backgroundColor: '#f9fafb', borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+            backgroundColor: C.background, borderBottomWidth: 1, borderBottomColor: C.border,
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Account Details</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>Account Details</Text>
             {!editing && (
               <TouchableOpacity onPress={startEdit} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Feather name="edit-2" size={13} color={Colors.primary} />
@@ -137,38 +146,39 @@ export default function CustomerProfileScreen() {
             )}
           </View>
 
-          <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
-            <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 3 }}>EMAIL</Text>
-            <Text style={{ fontSize: 14, color: '#6b7280' }}>{email}</Text>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>EMAIL</Text>
+            <Text style={{ fontSize: 14, color: C.textSecondary }}>{email}</Text>
           </View>
 
-          <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
-            <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 3 }}>FULL NAME</Text>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>FULL NAME</Text>
             {editing ? (
               <TextInput
                 value={draftName}
                 onChangeText={setDraftName}
                 autoFocus
-                style={{ fontSize: 14, color: '#111827', borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingVertical: 2 }}
+                placeholderTextColor={C.textMuted}
+                style={{ fontSize: 14, color: C.text, borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingVertical: 2 }}
               />
             ) : (
-              <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{fullName || '—'}</Text>
+              <Text style={{ fontSize: 14, color: C.text, fontWeight: '500' }}>{fullName || '—'}</Text>
             )}
           </View>
 
           <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-            <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 3 }}>PHONE</Text>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>PHONE</Text>
             {editing ? (
               <TextInput
                 value={draftPhone}
                 onChangeText={setDraftPhone}
                 keyboardType="phone-pad"
                 placeholder="e.g. 09123456789"
-                placeholderTextColor="#9ca3af"
-                style={{ fontSize: 14, color: '#111827', borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingVertical: 2 }}
+                placeholderTextColor={C.textMuted}
+                style={{ fontSize: 14, color: C.text, borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingVertical: 2 }}
               />
             ) : (
-              <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{phone || '—'}</Text>
+              <Text style={{ fontSize: 14, color: C.text, fontWeight: '500' }}>{phone || '—'}</Text>
             )}
           </View>
         </View>
@@ -178,11 +188,11 @@ export default function CustomerProfileScreen() {
             <TouchableOpacity
               onPress={() => setEditing(false)}
               style={{
-                flex: 1, backgroundColor: '#fff', borderRadius: 12,
-                paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: '#e5e7eb',
+                flex: 1, backgroundColor: C.white, borderRadius: 12,
+                paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: C.border,
               }}
             >
-              <Text style={{ color: '#374151', fontWeight: '600', fontSize: 14 }}>Cancel</Text>
+              <Text style={{ color: C.text, fontWeight: '600', fontSize: 14 }}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={saveProfile}
@@ -200,10 +210,65 @@ export default function CustomerProfileScreen() {
           </View>
         )}
 
+        {/* Theme toggle */}
+        <View style={{
+          backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+          borderColor: C.border, overflow: 'hidden',
+        }}>
+          <View style={{
+            paddingHorizontal: 16, paddingVertical: 12,
+            backgroundColor: C.background, borderBottomWidth: 1, borderBottomColor: C.border,
+          }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>Appearance</Text>
+          </View>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+            <Text style={{ fontSize: 13, color: C.textSecondary, marginBottom: 12 }}>
+              Choose between light and dark appearance.
+            </Text>
+            <View style={{
+              flexDirection: 'row', backgroundColor: C.background,
+              borderRadius: 12, padding: 4, gap: 4,
+            }}>
+              {THEME_OPTIONS.map(opt => {
+                const active = theme === opt.key
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    onPress={() => setTheme(opt.key)}
+                    style={{
+                      flex: 1, flexDirection: 'row', alignItems: 'center',
+                      justifyContent: 'center', gap: 5,
+                      paddingVertical: 9, borderRadius: 9,
+                      backgroundColor: active ? C.white : 'transparent',
+                      shadowColor: active ? '#000' : 'transparent',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: active ? 0.08 : 0,
+                      shadowRadius: 3,
+                      elevation: active ? 2 : 0,
+                    }}
+                  >
+                    <Feather
+                      name={opt.icon as any}
+                      size={14}
+                      color={active ? Colors.primary : C.textMuted}
+                    />
+                    <Text style={{
+                      fontSize: 13, fontWeight: active ? '700' : '500',
+                      color: active ? Colors.primary : C.textMuted,
+                    }}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          </View>
+        </View>
+
         <TouchableOpacity
           onPress={signOut}
           style={{
-            backgroundColor: '#fff', borderRadius: 14, borderWidth: 1,
+            backgroundColor: C.white, borderRadius: 14, borderWidth: 1,
             borderColor: '#fca5a5', paddingVertical: 14, alignItems: 'center',
             flexDirection: 'row', justifyContent: 'center', gap: 8,
           }}
