@@ -4,6 +4,7 @@ import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as Notifications from 'expo-notifications'
 import { supabase } from '@/lib/supabase'
+import { ThemeProvider, useTheme } from '@/context/ThemeContext'
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -15,18 +16,17 @@ Notifications.setNotificationHandler({
   }),
 })
 
-export default function RootLayout() {
+function RootLayoutInner() {
   const router = useRouter()
+  const { isDark } = useTheme()
 
   useEffect(() => {
-    // Handle initial session on app load
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         await navigateByRole(session.user.id)
       }
     })
 
-    // Handle auth state changes (sign in / sign out)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
         await navigateByRole(session.user.id)
@@ -52,8 +52,16 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="auto" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false }} />
     </>
+  )
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <RootLayoutInner />
+    </ThemeProvider>
   )
 }

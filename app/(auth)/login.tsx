@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, Image,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, StyleSheet,
@@ -8,6 +8,9 @@ import { Feather } from '@expo/vector-icons'
 import * as Notifications from 'expo-notifications'
 import Constants from 'expo-constants'
 import { supabase } from '@/lib/supabase'
+
+const MAX_ATTEMPTS = 5
+const LOCKOUT_SECONDS = 30
 
 async function registerPushToken(userId: string) {
   try {
@@ -48,8 +51,33 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [focused, setFocused] = useState<string | null>(null)
+  const [countdown, setCountdown] = useState(0)
+  const failedAttempts = useRef(0)
+  const lockedUntil = useRef(0)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [])
+
+  function startLockout() {
+    lockedUntil.current = Date.now() + LOCKOUT_SECONDS * 1000
+    setCountdown(LOCKOUT_SECONDS)
+    timerRef.current = setInterval(() => {
+      const remaining = Math.ceil((lockedUntil.current - Date.now()) / 1000)
+      if (remaining <= 0) {
+        clearInterval(timerRef.current!)
+        timerRef.current = null
+        failedAttempts.current = 0
+        setCountdown(0)
+      } else {
+        setCountdown(remaining)
+      }
+    }, 1000)
+  }
 
   async function handleLogin() {
+    if (countdown > 0) return
     if (!email || !password) {
       setError('Please enter your email and password.')
       return
@@ -60,7 +88,13 @@ export default function LoginScreen() {
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
     if (authError) {
-      setError(authError.message)
+      failedAttempts.current += 1
+      if (failedAttempts.current >= MAX_ATTEMPTS) {
+        setError(`Too many failed attempts. Please wait ${LOCKOUT_SECONDS} seconds before trying again.`)
+        startLockout()
+      } else {
+        setError(`${authError.message} (${MAX_ATTEMPTS - failedAttempts.current} attempt${MAX_ATTEMPTS - failedAttempts.current === 1 ? '' : 's'} remaining)`)
+      }
       setLoading(false)
       return
     }
@@ -81,8 +115,8 @@ export default function LoginScreen() {
 
       if (profile?.role && profile.role !== 'customer' && profile.role !== 'cleaner') {
         await supabase.auth.signOut()
-        setError('This app is for customers and cleaners only. Please use the web portal.')
         setLoading(false)
+        router.replace({ pathname: '/(auth)/wrong-platform', params: { email: data.session.user.email ?? '' } })
         return
       }
 
@@ -168,10 +202,17 @@ export default function LoginScreen() {
             </View>
           )}
 
-          <TouchableOpacity style={s.btn} onPress={handleLogin} disabled={loading} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={[s.btn, (countdown > 0) && s.btnLocked]}
+            onPress={handleLogin}
+            disabled={loading || countdown > 0}
+            activeOpacity={0.85}
+          >
             {loading
               ? <ActivityIndicator color="#fff" />
-              : <Text style={s.btnText}>Sign In</Text>
+              : countdown > 0
+                ? <Text style={s.btnText}>Try again in {countdown}s</Text>
+                : <Text style={s.btnText}>Sign In</Text>
             }
           </TouchableOpacity>
 
@@ -263,6 +304,7 @@ const s = StyleSheet.create({
     elevation: 5,
   },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 15, letterSpacing: 0.2 },
+  btnLocked: { backgroundColor: '#9ca3af', shadowOpacity: 0 },
 
   // Footer
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },
