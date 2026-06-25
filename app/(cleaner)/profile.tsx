@@ -6,6 +6,8 @@ import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
+import { useTheme, Theme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
 
 type Stats = {
@@ -13,8 +15,15 @@ type Stats = {
   accepted: number
 }
 
+const THEME_OPTIONS: Array<{ key: Theme; label: string; icon: string }> = [
+  { key: 'light', label: 'Light', icon: 'sun' },
+  { key: 'dark', label: 'Dark', icon: 'moon' },
+]
+
 export default function CleanerProfileScreen() {
   const router = useRouter()
+  const C = useThemeColors()
+  const { theme, setTheme } = useTheme()
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
@@ -57,14 +66,14 @@ export default function CleanerProfileScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-gray-50 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         title="My Profile"
         unreadCount={unreadCount}
@@ -75,8 +84,8 @@ export default function CleanerProfileScreen() {
 
         {/* Avatar block */}
         <View style={{
-          backgroundColor: '#fff', borderRadius: 20, borderWidth: 1,
-          borderColor: '#e5e7eb', padding: 24, alignItems: 'center',
+          backgroundColor: C.white, borderRadius: 20, borderWidth: 1,
+          borderColor: C.border, padding: 24, alignItems: 'center',
         }}>
           <View style={{
             width: 72, height: 72, borderRadius: 36,
@@ -87,8 +96,8 @@ export default function CleanerProfileScreen() {
               {fullName.charAt(0).toUpperCase() || '?'}
             </Text>
           </View>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>{fullName}</Text>
-          <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 2 }}>{email}</Text>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: C.text }}>{fullName}</Text>
+          <Text style={{ fontSize: 14, color: C.textSecondary, marginTop: 2 }}>{email}</Text>
           <View style={{
             marginTop: 8, paddingHorizontal: 10, paddingVertical: 3,
             backgroundColor: '#7c3aed15', borderRadius: 99,
@@ -100,31 +109,31 @@ export default function CleanerProfileScreen() {
         {/* Stats */}
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{
-            flex: 1, backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-            borderColor: '#e5e7eb', padding: 16, alignItems: 'center',
+            flex: 1, backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+            borderColor: C.border, padding: 16, alignItems: 'center',
           }}>
             <Text style={{ fontSize: 28, fontWeight: '800', color: '#16a34a' }}>{stats.completed}</Text>
-            <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2, fontWeight: '600' }}>Completed</Text>
+            <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2, fontWeight: '600' }}>Completed</Text>
           </View>
           <View style={{
-            flex: 1, backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-            borderColor: '#e5e7eb', padding: 16, alignItems: 'center',
+            flex: 1, backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+            borderColor: C.border, padding: 16, alignItems: 'center',
           }}>
             <Text style={{ fontSize: 28, fontWeight: '800', color: Colors.primary }}>{stats.accepted}</Text>
-            <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2, fontWeight: '600' }}>Upcoming</Text>
+            <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2, fontWeight: '600' }}>Upcoming</Text>
           </View>
         </View>
 
         {/* Account info */}
         <View style={{
-          backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-          borderColor: '#e5e7eb', overflow: 'hidden',
+          backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+          borderColor: C.border, overflow: 'hidden',
         }}>
           <View style={{
-            backgroundColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 12,
-            borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+            backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 12,
+            borderBottomWidth: 1, borderBottomColor: C.border,
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Account Details</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>Account Details</Text>
           </View>
 
           {[
@@ -135,28 +144,83 @@ export default function CleanerProfileScreen() {
             <View key={row.label} style={{
               paddingHorizontal: 16, paddingVertical: 14,
               borderBottomWidth: i < arr.length - 1 ? 1 : 0,
-              borderBottomColor: '#f3f4f6',
+              borderBottomColor: C.borderLight,
             }}>
-              <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 3 }}>{row.label}</Text>
-              <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{row.value}</Text>
+              <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>{row.label}</Text>
+              <Text style={{ fontSize: 14, color: C.text, fontWeight: '500' }}>{row.value}</Text>
             </View>
           ))}
         </View>
 
         <View style={{
-          backgroundColor: '#fdf2f8', borderRadius: 14, borderWidth: 1,
+          backgroundColor: C.primaryBg, borderRadius: 14, borderWidth: 1,
           borderColor: Colors.primary + '30', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10,
         }}>
           <Feather name="info" size={16} color={Colors.primary} />
-          <Text style={{ fontSize: 13, color: '#9c4a7a', flex: 1, lineHeight: 18 }}>
+          <Text style={{ fontSize: 13, color: Colors.primary, flex: 1, lineHeight: 18 }}>
             To update your profile or contact details, please reach out to your branch manager.
           </Text>
+        </View>
+
+        {/* Theme toggle */}
+        <View style={{
+          backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+          borderColor: C.border, overflow: 'hidden',
+        }}>
+          <View style={{
+            paddingHorizontal: 16, paddingVertical: 12,
+            backgroundColor: C.background, borderBottomWidth: 1, borderBottomColor: C.border,
+          }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>Appearance</Text>
+          </View>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+            <Text style={{ fontSize: 13, color: C.textSecondary, marginBottom: 12 }}>
+              Choose between light and dark appearance.
+            </Text>
+            <View style={{
+              flexDirection: 'row', backgroundColor: C.background,
+              borderRadius: 12, padding: 4, gap: 4,
+            }}>
+              {THEME_OPTIONS.map(opt => {
+                const active = theme === opt.key
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    onPress={() => setTheme(opt.key)}
+                    style={{
+                      flex: 1, flexDirection: 'row', alignItems: 'center',
+                      justifyContent: 'center', gap: 5,
+                      paddingVertical: 9, borderRadius: 9,
+                      backgroundColor: active ? C.white : 'transparent',
+                      shadowColor: active ? '#000' : 'transparent',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: active ? 0.08 : 0,
+                      shadowRadius: 3,
+                      elevation: active ? 2 : 0,
+                    }}
+                  >
+                    <Feather
+                      name={opt.icon as any}
+                      size={14}
+                      color={active ? Colors.primary : C.textMuted}
+                    />
+                    <Text style={{
+                      fontSize: 13, fontWeight: active ? '700' : '500',
+                      color: active ? Colors.primary : C.textMuted,
+                    }}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          </View>
         </View>
 
         <TouchableOpacity
           onPress={signOut}
           style={{
-            backgroundColor: '#fff', borderRadius: 14, borderWidth: 1,
+            backgroundColor: C.white, borderRadius: 14, borderWidth: 1,
             borderColor: '#fca5a5', paddingVertical: 14, alignItems: 'center',
             flexDirection: 'row', justifyContent: 'center', gap: 8,
           }}

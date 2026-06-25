@@ -9,6 +9,7 @@ import * as Location from 'expo-location'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import { SERVICE_LABELS, ServiceType } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
 
@@ -65,6 +66,7 @@ function formatElapsed(seconds: number) {
 export default function ActiveJobScreen() {
   const { assignmentId, bookingId } = useLocalSearchParams<{ assignmentId: string; bookingId: string }>()
   const router = useRouter()
+  const C = useThemeColors()
 
   const [job, setJob] = useState<JobInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -196,10 +198,7 @@ export default function ActiveJobScreen() {
           text: 'Confirm Collection',
           onPress: async () => {
             setUpdating(true)
-            await supabase
-              .from('bookings')
-              .update({ payment_status: 'paid' })
-              .eq('id', bookingId)
+            await supabase.from('bookings').update({ payment_status: 'paid' }).eq('id', bookingId)
             setCashCollected(true)
             setJob(prev => prev ? { ...prev, payment_status: 'paid' } : prev)
             setUpdating(false)
@@ -212,33 +211,25 @@ export default function ActiveJobScreen() {
 
   async function completeJob() {
     if (job?.payment_method === 'cash' && !cashCollected) {
-      Alert.alert(
-        'Cash Not Collected',
-        'Please collect the cash payment before marking this job as completed.',
-        [{ text: 'OK' }]
-      )
+      Alert.alert('Cash Not Collected', 'Please collect the cash payment before marking this job as completed.', [{ text: 'OK' }])
       return
     }
-    Alert.alert(
-      'Complete Job',
-      'Are you sure you want to mark this job as completed?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Complete', onPress: async () => {
-            setUpdating(true)
-            await Promise.all([
-              supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId),
-              supabase.from('cleaner_assignments').update({ status: 'completed' }).eq('id', assignmentId),
-            ])
-            setUpdating(false)
-            Alert.alert('Job Complete', 'Great work! This job has been marked as completed.', [
-              { text: 'OK', onPress: () => router.replace('/(cleaner)/jobs') },
-            ])
-          },
+    Alert.alert('Complete Job', 'Are you sure you want to mark this job as completed?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Complete', onPress: async () => {
+          setUpdating(true)
+          await Promise.all([
+            supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId),
+            supabase.from('cleaner_assignments').update({ status: 'completed' }).eq('id', assignmentId),
+          ])
+          setUpdating(false)
+          Alert.alert('Job Complete', 'Great work! This job has been marked as completed.', [
+            { text: 'OK', onPress: () => router.replace('/(cleaner)/jobs') },
+          ])
         },
-      ]
-    )
+      },
+    ])
   }
 
   function openMaps() {
@@ -253,7 +244,7 @@ export default function ActiveJobScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
@@ -261,8 +252,8 @@ export default function ActiveJobScreen() {
 
   if (!job) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={{ color: '#6b7280' }}>Job not found.</Text>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: C.textSecondary }}>Job not found.</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 12 }}>
           <Text style={{ color: Colors.primary, fontWeight: '600' }}>Go Back</Text>
         </TouchableOpacity>
@@ -274,7 +265,7 @@ export default function ActiveJobScreen() {
     .filter(Boolean).join(', ') || '—'
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         showBack
         onBackPress={() => router.back()}
@@ -292,7 +283,7 @@ export default function ActiveJobScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
 
-        {/* Live timer */}
+        {/* Live timer — always purple, intentional branding */}
         {arrived && (
           <View style={{
             backgroundColor: '#7c3aed', borderRadius: 16, padding: 20, alignItems: 'center',
@@ -313,32 +304,32 @@ export default function ActiveJobScreen() {
 
         {/* Job summary */}
         <View style={{
-          backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb', padding: 16,
+          backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 16,
           flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <View>
-            <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827' }}>{SERVICE_LABELS[job.service_type]}</Text>
-            <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>{SERVICE_LABELS[job.service_type]}</Text>
+            <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 2 }}>
               {formatDate(job.service_date)} · {formatTime(job.service_time)}
             </Text>
-            <Text style={{ fontSize: 13, color: '#9ca3af', marginTop: 1 }}>{job.property_sqm} sqm</Text>
+            <Text style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{job.property_sqm} sqm</Text>
           </View>
           <Text style={{ fontSize: 18, fontWeight: '800', color: Colors.primary }}>
             ₱{Number(job.base_price).toLocaleString()}
           </Text>
         </View>
 
-        {/* Address + Map + Navigate */}
+        {/* Address + Map */}
         <View style={{
-          backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb',
+          backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border,
           overflow: 'hidden',
         }}>
           <View style={{
             flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-            backgroundColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 10,
-            borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+            backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 10,
+            borderBottomWidth: 1, borderBottomColor: C.border,
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Service Location</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>Service Location</Text>
             <TouchableOpacity onPress={openMaps} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Feather name="navigation" size={13} color={Colors.primary} />
               <Text style={{ fontSize: 13, color: Colors.primary, fontWeight: '600' }}>Get Directions</Text>
@@ -367,9 +358,9 @@ export default function ActiveJobScreen() {
           ) : null}
 
           <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-            <Text style={{ fontSize: 14, color: '#111827', lineHeight: 20 }}>{fullAddress}</Text>
+            <Text style={{ fontSize: 14, color: C.text, lineHeight: 20 }}>{fullAddress}</Text>
             {job.service_lat && (
-              <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
+              <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
                 GPS: {job.service_lat.toFixed(5)}, {job.service_lng!.toFixed(5)}
               </Text>
             )}
@@ -379,10 +370,10 @@ export default function ActiveJobScreen() {
         {/* Arrival verification */}
         {!arrived && (
           <View style={{
-            backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-            borderColor: withinRange ? '#86efac' : '#e5e7eb', padding: 16,
+            backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+            borderColor: withinRange ? '#86efac' : C.border, padding: 16,
           }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#374151', marginBottom: 10 }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10 }}>
               Arrival Verification
             </Text>
 
@@ -409,7 +400,7 @@ export default function ActiveJobScreen() {
               onPress={checkArrival}
               disabled={locating}
               style={{
-                backgroundColor: '#f3f4f6', borderRadius: 12, paddingVertical: 12,
+                backgroundColor: C.borderLight, borderRadius: 12, paddingVertical: 12,
                 alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8,
               }}
             >
@@ -446,15 +437,13 @@ export default function ActiveJobScreen() {
           </View>
         )}
 
-        {/* Special notes */}
         {job.special_notes && (
-          <View style={{ backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb', padding: 16 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 6 }}>Special Notes</Text>
-            <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 20 }}>{job.special_notes}</Text>
+          <View style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 6 }}>Special Notes</Text>
+            <Text style={{ fontSize: 13, color: C.textSecondary, lineHeight: 20 }}>{job.special_notes}</Text>
           </View>
         )}
 
-        {/* Collect Cash */}
         {arrived && job.payment_method === 'cash' && (
           cashCollected ? (
             <View style={{
@@ -488,7 +477,6 @@ export default function ActiveJobScreen() {
           )
         )}
 
-        {/* Mark as Completed */}
         {arrived && (
           <TouchableOpacity
             onPress={completeJob}

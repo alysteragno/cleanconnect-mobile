@@ -1,17 +1,20 @@
 import { Tabs } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 
 export default function CleanerLayout() {
+  const C = useThemeColors()
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textMuted,
+        tabBarInactiveTintColor: C.textMuted,
         tabBarStyle: {
-          borderTopColor: Colors.border,
-          backgroundColor: Colors.white,
+          borderTopColor: C.border,
+          backgroundColor: C.white,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
@@ -44,6 +47,7 @@ export default function CleanerLayout() {
           tabBarIcon: ({ color, size }) => <Feather name="user" color={color} size={size} />,
         }}
       />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   )
 }

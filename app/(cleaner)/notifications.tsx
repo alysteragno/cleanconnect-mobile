@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import AppHeader from '@/components/AppHeader'
 
 type Notification = {
@@ -46,6 +47,7 @@ function formatTime(d: string) {
 
 export default function CleanerNotificationsScreen() {
   const router = useRouter()
+  const C = useThemeColors()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
@@ -94,14 +96,14 @@ export default function CleanerNotificationsScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         title="Notifications"
         showBack
@@ -111,9 +113,9 @@ export default function CleanerNotificationsScreen() {
 
       {isEmpty ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 }}>
-          <Feather name="bell" size={40} color={Colors.textMuted} style={{ marginBottom: 12 }} />
-          <Text style={{ fontSize: 15, fontWeight: '700', color: '#374151' }}>All caught up</Text>
-          <Text style={{ fontSize: 13, color: '#9ca3af', marginTop: 4, textAlign: 'center' }}>
+          <Feather name="bell" size={40} color={C.textMuted} style={{ marginBottom: 12 }} />
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>All caught up</Text>
+          <Text style={{ fontSize: 13, color: C.textMuted, marginTop: 4, textAlign: 'center' }}>
             Job offers, updates and announcements will appear here.
           </Text>
         </View>
@@ -131,7 +133,7 @@ export default function CleanerNotificationsScreen() {
           }
           renderSectionHeader={({ section }) => (
             <View style={{ paddingVertical: 8, paddingHorizontal: 2 }}>
-              <Text style={{ fontSize: 11, fontWeight: '800', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 {section.title}
               </Text>
             </View>
@@ -141,9 +143,9 @@ export default function CleanerNotificationsScreen() {
               const n = item.data
               return (
                 <View style={{
-                  backgroundColor: n.is_read ? '#fff' : Colors.primary + '08',
+                  backgroundColor: n.is_read ? C.white : Colors.primary + '08',
                   borderRadius: 14, borderWidth: 1,
-                  borderColor: n.is_read ? '#e5e7eb' : Colors.primary + '30',
+                  borderColor: n.is_read ? C.border : Colors.primary + '30',
                   padding: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12,
                   marginBottom: 8,
                 }}>
@@ -158,7 +160,7 @@ export default function CleanerNotificationsScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <Text style={{
                         fontSize: 14, fontWeight: n.is_read ? '600' : '700',
-                        color: '#111827', flex: 1, marginRight: 8,
+                        color: C.text, flex: 1, marginRight: 8,
                       }}>
                         {n.title}
                       </Text>
@@ -167,11 +169,11 @@ export default function CleanerNotificationsScreen() {
                       )}
                     </View>
                     {!!n.body && (
-                      <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 3, lineHeight: 18 }}>
+                      <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 3, lineHeight: 18 }}>
                         {n.body}
                       </Text>
                     )}
-                    <Text style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                    <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>
                       {formatTime(n.created_at)}
                     </Text>
                   </View>
@@ -182,7 +184,7 @@ export default function CleanerNotificationsScreen() {
             const a = item.data
             return (
               <View style={{
-                backgroundColor: '#fdf2f8',
+                backgroundColor: C.primaryBg,
                 borderRadius: 14, borderWidth: 1, borderColor: Colors.primary + '30',
                 padding: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12,
                 marginBottom: 8,
@@ -195,13 +197,13 @@ export default function CleanerNotificationsScreen() {
                   <Feather name="volume-2" size={16} color={Colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>{a.title}</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{a.title}</Text>
                   {!!a.body && (
-                    <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 3, lineHeight: 18 }}>
+                    <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 3, lineHeight: 18 }}>
                       {a.body}
                     </Text>
                   )}
-                  <Text style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                  <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>
                     {formatTime(a.created_at)}
                   </Text>
                 </View>

@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import AppHeader from '@/components/AppHeader'
 import { SERVICE_LABELS, ServiceType } from '@/constants/types'
 
@@ -50,6 +51,7 @@ function formatTime(t: string) {
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
+  const C = useThemeColors()
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [loading, setLoading] = useState(true)
   const [responding, setResponding] = useState(false)
@@ -94,16 +96,13 @@ export default function JobDetailScreen() {
   function openMaps() {
     const b = assignment?.bookings
     if (!b) return
-
     const address = [b.address_unit, b.address_street, b.address_city, b.address_province]
       .filter(Boolean).join(', ')
 
     if (b.service_lat && b.service_lng) {
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${b.service_lat},${b.service_lng}`
-      Linking.openURL(url)
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${b.service_lat},${b.service_lng}`)
     } else if (address) {
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`
-      Linking.openURL(url)
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`)
     } else {
       Alert.alert('No location', 'No address or GPS coordinates available for this job.')
     }
@@ -111,7 +110,7 @@ export default function JobDetailScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={Colors.primary} />
       </View>
     )
@@ -119,8 +118,8 @@ export default function JobDetailScreen() {
 
   if (!assignment) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={{ color: '#6b7280' }}>Job not found.</Text>
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: C.textSecondary }}>Job not found.</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 12 }}>
           <Text style={{ color: Colors.primary, fontWeight: '600' }}>Go Back</Text>
         </TouchableOpacity>
@@ -137,7 +136,7 @@ export default function JobDetailScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         showBack
         onBackPress={() => router.back()}
@@ -153,8 +152,7 @@ export default function JobDetailScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
 
-        {/* Service details */}
-        <DetailCard title="Job Details" rows={[
+        <DetailCard C={C} title="Job Details" rows={[
           ...(b.customer ? [{ label: 'Customer', value: b.customer.full_name }] : []),
           { label: 'Service', value: SERVICE_LABELS[b.service_type] },
           { label: 'Space', value: b.space_type === 'residential' ? 'Residential' : 'Commercial' },
@@ -164,27 +162,23 @@ export default function JobDetailScreen() {
           ...(b.branches ? [{ label: 'Branch', value: b.branches.name }] : []),
         ]} />
 
-        {/* Schedule */}
-        <DetailCard title="Schedule" rows={[
+        <DetailCard C={C} title="Schedule" rows={[
           { label: 'Date', value: formatDate(b.service_date) },
           { label: 'Time', value: formatTime(b.service_time) },
         ]} />
 
         {/* Address + Map */}
         <View style={{
-          backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-          borderColor: '#e5e7eb', overflow: 'hidden',
+          backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+          borderColor: C.border, overflow: 'hidden',
         }}>
           <View style={{
             flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-            backgroundColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 10,
-            borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+            backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 10,
+            borderBottomWidth: 1, borderBottomColor: C.border,
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Service Location</Text>
-            <TouchableOpacity
-              onPress={openMaps}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-            >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>Service Location</Text>
+            <TouchableOpacity onPress={openMaps} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Feather name="navigation" size={13} color={Colors.primary} />
               <Text style={{ fontSize: 13, color: Colors.primary, fontWeight: '600' }}>Get Directions</Text>
             </TouchableOpacity>
@@ -212,37 +206,35 @@ export default function JobDetailScreen() {
           ) : null}
 
           <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-            <Text style={{ fontSize: 14, color: '#111827', lineHeight: 20 }}>{fullAddress}</Text>
+            <Text style={{ fontSize: 14, color: C.text, lineHeight: 20 }}>{fullAddress}</Text>
             {b.service_lat && (
-              <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
+              <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
                 GPS: {b.service_lat.toFixed(5)}, {b.service_lng!.toFixed(5)}
               </Text>
             )}
           </View>
         </View>
 
-        {/* Special notes */}
         {b.special_notes && (
           <View style={{
-            backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb', padding: 16,
+            backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16,
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 6 }}>Special Notes</Text>
-            <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 20 }}>{b.special_notes}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 6 }}>Special Notes</Text>
+            <Text style={{ fontSize: 13, color: C.textSecondary, lineHeight: 20 }}>{b.special_notes}</Text>
           </View>
         )}
 
-        {/* Offer actions */}
         {assignment.status === 'offered' && (
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
             <TouchableOpacity
               onPress={() => respondToOffer(false)}
               disabled={responding}
               style={{
-                flex: 1, backgroundColor: '#fff', borderRadius: 14, paddingVertical: 14,
-                alignItems: 'center', borderWidth: 1, borderColor: '#e5e7eb',
+                flex: 1, backgroundColor: C.white, borderRadius: 14, paddingVertical: 14,
+                alignItems: 'center', borderWidth: 1, borderColor: C.border,
               }}
             >
-              <Text style={{ color: '#374151', fontWeight: '600' }}>Decline</Text>
+              <Text style={{ color: C.text, fontWeight: '600' }}>Decline</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => respondToOffer(true)}
@@ -260,7 +252,6 @@ export default function JobDetailScreen() {
           </View>
         )}
 
-        {/* Go to active job */}
         {assignment.status === 'accepted' && b.status === 'in_progress' && (
           <TouchableOpacity
             style={{
@@ -274,7 +265,6 @@ export default function JobDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Start job (if accepted and booking confirmed) */}
         {assignment.status === 'accepted' && b.status === 'confirmed' && (
           <TouchableOpacity
             style={{
@@ -293,30 +283,31 @@ export default function JobDetailScreen() {
   )
 }
 
-function DetailCard({ title, rows }: {
+function DetailCard({ title, rows, C }: {
   title: string
   rows: Array<{ label: string; value: string; highlight?: boolean }>
+  C: ReturnType<typeof useThemeColors>
 }) {
   return (
     <View style={{
-      backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-      borderColor: '#e5e7eb', overflow: 'hidden',
+      backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+      borderColor: C.border, overflow: 'hidden',
     }}>
       <View style={{
-        backgroundColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 10,
-        borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+        backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 10,
+        borderBottomWidth: 1, borderBottomColor: C.border,
       }}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>{title}</Text>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>{title}</Text>
       </View>
       {rows.map((row, i) => (
         <View key={row.label} style={{
           flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 11,
-          borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: '#f3f4f6',
+          borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: C.borderLight,
         }}>
-          <Text style={{ width: 90, fontSize: 13, color: '#6b7280' }}>{row.label}</Text>
+          <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>{row.label}</Text>
           <Text style={{
             flex: 1, fontSize: 13, fontWeight: '600',
-            color: row.highlight ? '#16a34a' : '#111827',
+            color: row.highlight ? '#16a34a' : C.text,
           }}>
             {row.value}
           </Text>

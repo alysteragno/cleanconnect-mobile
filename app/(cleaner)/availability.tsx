@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import { SERVICE_LABELS, ServiceType } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
 
@@ -38,7 +39,6 @@ function formatTime(t: string) {
   const [h, m] = t.split(':').map(Number)
   return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
 }
-
 function tomorrow() {
   const d = new Date()
   d.setDate(d.getDate() + 1)
@@ -48,14 +48,13 @@ function tomorrow() {
 
 export default function CleanerScheduleScreen() {
   const router = useRouter()
+  const C = useThemeColors()
   const [tab, setTab] = useState<'schedule' | 'dayoffs'>('schedule')
 
-  // schedule state
   const [items, setItems] = useState<ScheduleItem[]>([])
   const [loadingSchedule, setLoadingSchedule] = useState(true)
   const [refreshingSchedule, setRefreshingSchedule] = useState(false)
 
-  // day-off state
   const [dayoffs, setDayoffs] = useState<DayOff[]>([])
   const [loadingDayoffs, setLoadingDayoffs] = useState(true)
   const [refreshingDayoffs, setRefreshingDayoffs] = useState(false)
@@ -85,13 +84,9 @@ export default function CleanerScheduleScreen() {
   async function loadSchedule() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-
     const { data } = await supabase
       .from('cleaner_assignments')
-      .select(`
-        id, booking_id,
-        bookings (service_type, service_date, service_time, property_sqm, address_city, status)
-      `)
+      .select(`id, booking_id, bookings (service_type, service_date, service_time, property_sqm, address_city, status)`)
       .eq('cleaner_id', user.id)
       .eq('status', 'accepted')
       .order('assigned_at', { ascending: true })
@@ -104,7 +99,6 @@ export default function CleanerScheduleScreen() {
   async function loadDayoffs() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-
     const today = new Date().toISOString().slice(0, 10)
     const { data } = await supabase
       .from('cleaner_availability')
@@ -120,12 +114,10 @@ export default function CleanerScheduleScreen() {
 
   async function addDayoff() {
     const dateStr = pickerDate.toISOString().slice(0, 10)
-
     if (dayoffs.some(d => d.unavailable_date === dateStr)) {
       Alert.alert('Already marked', 'That date is already set as a day-off.')
       return
     }
-
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSaving(false); return }
@@ -145,27 +137,20 @@ export default function CleanerScheduleScreen() {
   }
 
   async function removeDayoff(id: string, date: string) {
-    Alert.alert(
-      'Remove day-off?',
-      `Remove ${formatDate(date)} from your day-offs?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove', style: 'destructive',
-          onPress: async () => {
-            const { error } = await supabase
-              .from('cleaner_availability')
-              .delete()
-              .eq('id', id)
-            if (error) {
-              Alert.alert('Error', error.message)
-            } else {
-              setDayoffs(prev => prev.filter(d => d.id !== id))
-            }
-          },
+    Alert.alert('Remove day-off?', `Remove ${formatDate(date)} from your day-offs?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.from('cleaner_availability').delete().eq('id', id)
+          if (error) {
+            Alert.alert('Error', error.message)
+          } else {
+            setDayoffs(prev => prev.filter(d => d.id !== id))
+          }
         },
-      ]
-    )
+      },
+    ])
   }
 
   const sections = useMemo(() => {
@@ -180,12 +165,11 @@ export default function CleanerScheduleScreen() {
       if (!byDate[d]) byDate[d] = []
       byDate[d].push(item)
     }
-
     return Object.entries(byDate).map(([date, data]) => ({ title: date, data }))
   }, [items])
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
         title="My Schedule"
         subtitle="Schedule & day-off management"
@@ -195,8 +179,8 @@ export default function CleanerScheduleScreen() {
 
       {/* Tabs */}
       <View style={{
-        flexDirection: 'row', backgroundColor: '#fff',
-        borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+        flexDirection: 'row', backgroundColor: C.white,
+        borderBottomWidth: 1, borderBottomColor: C.border,
       }}>
         {(['schedule', 'dayoffs'] as const).map(t => (
           <TouchableOpacity
@@ -210,7 +194,7 @@ export default function CleanerScheduleScreen() {
           >
             <Text style={{
               fontSize: 14, fontWeight: '700',
-              color: tab === t ? Colors.primary : '#6b7280',
+              color: tab === t ? Colors.primary : C.textSecondary,
             }}>
               {t === 'schedule' ? 'Schedule' : 'Day-offs'}
             </Text>
@@ -226,11 +210,11 @@ export default function CleanerScheduleScreen() {
           </View>
         ) : sections.length === 0 ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-            <Feather name="calendar" size={40} color="#9ca3af" style={{ marginBottom: 12 }} />
-            <Text style={{ fontSize: 16, fontWeight: '700', color: '#374151', textAlign: 'center' }}>
+            <Feather name="calendar" size={40} color={C.textMuted} style={{ marginBottom: 12 }} />
+            <Text style={{ fontSize: 16, fontWeight: '700', color: C.text, textAlign: 'center' }}>
               No upcoming jobs
             </Text>
-            <Text style={{ fontSize: 14, color: '#9ca3af', textAlign: 'center', marginTop: 6 }}>
+            <Text style={{ fontSize: 14, color: C.textMuted, textAlign: 'center', marginTop: 6 }}>
               Accept job offers to see them on your schedule.
             </Text>
             <TouchableOpacity
@@ -262,8 +246,8 @@ export default function CleanerScheduleScreen() {
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={{
-                  backgroundColor: '#fff', borderRadius: 14, borderWidth: 1,
-                  borderColor: '#e5e7eb', padding: 14, marginBottom: 8,
+                  backgroundColor: C.white, borderRadius: 14, borderWidth: 1,
+                  borderColor: C.border, padding: 14, marginBottom: 8,
                   flexDirection: 'row', alignItems: 'center', gap: 12,
                 }}
                 onPress={() => router.push(`/(cleaner)/jobs/${item.id}`)}
@@ -277,20 +261,20 @@ export default function CleanerScheduleScreen() {
                   <Feather name="briefcase" size={20} color={Colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>
                     {SERVICE_LABELS[item.bookings?.service_type]}
                   </Text>
-                  <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+                  <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 2 }}>
                     {formatTime(item.bookings?.service_time)} · {item.bookings?.property_sqm} sqm
                   </Text>
                   {item.bookings?.address_city && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                      <Feather name="map-pin" size={11} color="#9ca3af" />
-                      <Text style={{ fontSize: 12, color: '#9ca3af' }}>{item.bookings.address_city}</Text>
+                      <Feather name="map-pin" size={11} color={C.textMuted} />
+                      <Text style={{ fontSize: 12, color: C.textMuted }}>{item.bookings.address_city}</Text>
                     </View>
                   )}
                 </View>
-                <Feather name="chevron-right" size={16} color="#d1d5db" />
+                <Feather name="chevron-right" size={16} color={C.textMuted} />
               </TouchableOpacity>
             )}
           />
@@ -300,27 +284,27 @@ export default function CleanerScheduleScreen() {
       {/* Day-offs tab */}
       {tab === 'dayoffs' && (
         <View style={{ flex: 1 }}>
-          {/* Add day-off row */}
+          {/* Add day-off card */}
           <View style={{
-            backgroundColor: '#fff', marginHorizontal: 16, marginTop: 16,
-            borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb', padding: 16,
+            backgroundColor: C.white, marginHorizontal: 16, marginTop: 16,
+            borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16,
           }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 10 }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10 }}>
               Mark a day-off
             </Text>
             <TouchableOpacity
               onPress={() => setShowPicker(true)}
               style={{
                 flexDirection: 'row', alignItems: 'center', gap: 10,
-                borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10,
-                padding: 12, backgroundColor: '#f9fafb',
+                borderWidth: 1, borderColor: C.border, borderRadius: 10,
+                padding: 12, backgroundColor: C.background,
               }}
             >
               <Feather name="calendar" size={16} color={Colors.primary} />
-              <Text style={{ flex: 1, fontSize: 14, color: '#111827' }}>
+              <Text style={{ flex: 1, fontSize: 14, color: C.text }}>
                 {pickerDate.toLocaleDateString('en-PH', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
               </Text>
-              <Feather name="chevron-down" size={14} color="#9ca3af" />
+              <Feather name="chevron-down" size={14} color={C.textMuted} />
             </TouchableOpacity>
 
             {showPicker && (
@@ -372,32 +356,32 @@ export default function CleanerScheduleScreen() {
               }
               ListHeaderComponent={
                 dayoffs.length > 0 ? (
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#6b7280', marginBottom: 4 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 4 }}>
                     UPCOMING DAY-OFFS
                   </Text>
                 ) : null
               }
               ListEmptyComponent={
                 <View style={{ alignItems: 'center', paddingVertical: 32 }}>
-                  <Feather name="check-circle" size={32} color="#9ca3af" style={{ marginBottom: 8 }} />
-                  <Text style={{ fontSize: 14, color: '#9ca3af', textAlign: 'center' }}>
+                  <Feather name="check-circle" size={32} color={C.textMuted} style={{ marginBottom: 8 }} />
+                  <Text style={{ fontSize: 14, color: C.textMuted, textAlign: 'center' }}>
                     No day-offs set. Use the form above to mark dates you're unavailable.
                   </Text>
                 </View>
               }
               renderItem={({ item }) => (
                 <View style={{
-                  backgroundColor: '#fff', borderRadius: 12, borderWidth: 1,
-                  borderColor: '#e5e7eb', padding: 14,
+                  backgroundColor: C.white, borderRadius: 12, borderWidth: 1,
+                  borderColor: C.border, padding: 14,
                   flexDirection: 'row', alignItems: 'center', gap: 12,
                 }}>
                   <View style={{
                     width: 40, height: 40, borderRadius: 10,
-                    backgroundColor: '#fce7f3', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center',
                   }}>
                     <Feather name="moon" size={18} color={Colors.primary} />
                   </View>
-                  <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#111827' }}>
+                  <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: C.text }}>
                     {formatDate(item.unavailable_date)}
                   </Text>
                   <TouchableOpacity
