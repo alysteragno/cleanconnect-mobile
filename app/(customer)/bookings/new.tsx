@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image,
@@ -11,14 +11,47 @@ import { supabase } from '@/lib/supabase'
 import AppHeader from '@/components/AppHeader'
 import LocationMapPicker from '@/components/LocationMapPicker'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 import { ServiceType, SpaceType, SERVICE_LABELS } from '@/constants/types'
 import { estimatePrice } from '@/constants/pricing'
+import { saveDraft, loadDraft, clearDraft } from '@/lib/bookingDraft'
+
+function GCashIcon() {
+  return (
+    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: '#007DFB', alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>G</Text>
+    </View>
+  )
+}
+
+function BankIcon() {
+  return (
+    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: '#1d4ed8', alignItems: 'center', justifyContent: 'center' }}>
+      <Feather name="home" size={22} color="#fff" />
+    </View>
+  )
+}
+
+function CashIcon() {
+  return (
+    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>₱</Text>
+    </View>
+  )
+}
+
+const PAYMENT_ICONS: Record<string, React.ReactNode> = {
+  cash: <CashIcon />,
+  gcash: <GCashIcon />,
+  bank_transfer: <BankIcon />,
+}
 
 type FormData = {
   service_type: ServiceType | null
   space_type: SpaceType | null
   property_sqm: string
   sofa_seaters: number
+  other_furniture: string
   furniture_images: string[]
   address_unit: string
   address_street: string
@@ -30,6 +63,8 @@ type FormData = {
   service_date: Date | null
   service_time: Date | null
   payment_method: string
+  payment_reference: string
+  payment_proof_uri: string
   special_notes: string
 }
 
@@ -38,6 +73,7 @@ const INITIAL_FORM: FormData = {
   space_type: null,
   property_sqm: '',
   sofa_seaters: 0,
+  other_furniture: '',
   furniture_images: [],
   address_unit: '',
   address_street: '',
@@ -49,6 +85,8 @@ const INITIAL_FORM: FormData = {
   service_date: null,
   service_time: null,
   payment_method: '',
+  payment_reference: '',
+  payment_proof_uri: '',
   special_notes: '',
 }
 
@@ -87,11 +125,45 @@ function toTimeString(d: Date) {
 
 export default function NewBookingScreen() {
   const router = useRouter()
+  const C = useThemeColors()
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
   const [showMap, setShowMap] = useState(false)
   const [step2Visited, setStep2Visited] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
+
+  // Restore draft on mount
+  useEffect(() => {
+    loadDraft().then(draft => {
+      if (draft) {
+        setForm({
+          ...draft.form,
+          service_type: draft.form.service_type as ServiceType | null,
+          space_type: draft.form.space_type as SpaceType | null,
+          service_date: draft.form.service_date ? new Date(draft.form.service_date) : null,
+          service_time: draft.form.service_time ? new Date(draft.form.service_time) : null,
+        })
+        setStep(draft.step)
+        setDraftRestored(true)
+        setTimeout(() => setDraftRestored(false), 3000)
+      }
+      draftLoaded.current = true
+    })
+  }, [])
+
+  // Save draft on every form/step change (only after initial load)
+  useEffect(() => {
+    if (!draftLoaded.current) return
+    saveDraft({
+      form: {
+        ...form,
+        service_date: form.service_date?.toISOString() ?? null,
+        service_time: form.service_time?.toISOString() ?? null,
+      },
+      step,
+      savedAt: new Date().toISOString(),
+    })
+  }, [form, step])
 
   // Auto-open map the first time the user lands on step 2
   useEffect(() => {
@@ -105,6 +177,8 @@ export default function NewBookingScreen() {
   const [error, setError] = useState('')
   const [processing, setProcessing] = useState(false)
   const [aiStep, setAiStep] = useState(0)
+  const [draftRestored, setDraftRestored] = useState(false)
+  const draftLoaded = useRef(false)
 
   function update<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(f => ({ ...f, [key]: value }))
@@ -128,34 +202,42 @@ export default function NewBookingScreen() {
     }
   }
 
-  function validateStep(): string {
+  function validateStep(): { title: string; message: string } | null {
     if (step === 1) {
-      if (!form.service_type) return 'Please select a service type.'
-      if (!form.space_type) return 'Please select a space type.'
+      if (!form.service_type) return { title: 'Service required', message: 'Please select a service type.' }
+      if (!form.space_type) return { title: 'Space required', message: 'Please select a space type.' }
       if (!form.property_sqm || isNaN(Number(form.property_sqm)) || Number(form.property_sqm) <= 0)
-        return 'Please enter a valid property size.'
+        return { title: 'Invalid size', message: 'Please enter a valid property size in sqm.' }
       if (form.furniture_images.length === 0)
-        return 'Please upload at least one photo of the area/furniture to be cleaned.'
+        return { title: 'Photos required', message: 'Please upload at least one photo of the area or furniture to be cleaned.' }
     }
     if (step === 2) {
-      if (!form.address_street.trim()) return 'Please enter a street address.'
-      if (!form.address_city.trim()) return 'Please enter a city.'
-      if (!form.address_province.trim()) return 'Please enter a province.'
-      if (!form.service_lat) return 'Please pin your service location on the map.'
+      if (!form.address_street.trim()) return { title: 'Address incomplete', message: 'Please enter a street address.' }
+      if (!form.address_city.trim()) return { title: 'Address incomplete', message: 'Please enter a city.' }
+      if (!form.address_province.trim()) return { title: 'Address incomplete', message: 'Please enter a province.' }
+      if (!form.service_lat) return { title: 'Location required', message: 'Please pin your service location on the map.' }
     }
     if (step === 3) {
-      if (!form.service_date) return 'Please select a date.'
-      if (!form.service_time) return 'Please select a time.'
+      if (!form.service_date) return { title: 'Date required', message: 'Please select a service date.' }
+      if (!form.service_time) return { title: 'Time required', message: 'Please select a service time.' }
+      const combined = new Date(form.service_date)
+      combined.setHours(form.service_time.getHours(), form.service_time.getMinutes(), 0, 0)
+      if (combined.getTime() - Date.now() < 24 * 60 * 60 * 1000)
+        return { title: 'Too soon', message: 'Bookings must be made at least 24 hours in advance. Please choose a later date or time.' }
     }
     if (step === 5) {
-      if (!form.payment_method) return 'Please select a payment method.'
+      if (!form.payment_method) return { title: 'Payment required', message: 'Please select a payment method to continue.' }
+      if (['gcash', 'bank_transfer'].includes(form.payment_method)) {
+        if (!form.payment_reference.trim()) return { title: 'Reference required', message: 'Please enter the reference number from your payment.' }
+        if (!form.payment_proof_uri) return { title: 'Proof required', message: 'Please attach a screenshot of your payment confirmation.' }
+      }
     }
-    return ''
+    return null
   }
 
   function handleNext() {
     const err = validateStep()
-    if (err) { Alert.alert('Missing info', err); return }
+    if (err) { Alert.alert(err.title, err.message); return }
 
     // Step 4 (Review) → trigger AI Processing animation before going to step 5
     if (step === 4) {
@@ -182,7 +264,6 @@ export default function NewBookingScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setError('Not authenticated.'); setSubmitting(false); return }
 
-    // Upload furniture images to Supabase Storage
     const uploadedUrls: string[] = []
     for (const uri of form.furniture_images) {
       try {
@@ -198,7 +279,26 @@ export default function NewBookingScreen() {
           uploadedUrls.push(urlData.publicUrl)
         }
       } catch {
-        // skip individual failed uploads, form still submits
+        // skip individual failed uploads
+      }
+    }
+
+    let payment_proof_url: string | null = null
+    if (form.payment_proof_uri) {
+      try {
+        const ext = form.payment_proof_uri.split('.').pop()?.toLowerCase() ?? 'jpg'
+        const path = `${user.id}/proof-${Date.now()}.${ext}`
+        const response = await fetch(form.payment_proof_uri)
+        const blob = await response.blob()
+        const { error: uploadError } = await supabase.storage
+          .from('booking-images')
+          .upload(path, blob, { contentType: `image/${ext}`, upsert: false })
+        if (!uploadError) {
+          const { data: urlData } = supabase.storage.from('booking-images').getPublicUrl(path)
+          payment_proof_url = urlData.publicUrl
+        }
+      } catch {
+        // continue — validation already ensured uri exists; a failed upload surfaces via insertError
       }
     }
 
@@ -212,6 +312,7 @@ export default function NewBookingScreen() {
       space_type: form.space_type,
       property_sqm: sqm,
       sofa_seaters: form.sofa_seaters > 0 ? form.sofa_seaters : null,
+      other_furniture: form.other_furniture.trim() || null,
       furniture_images: uploadedUrls.length > 0 ? uploadedUrls : null,
       address_unit: form.address_unit || null,
       address_street: form.address_street,
@@ -222,6 +323,8 @@ export default function NewBookingScreen() {
       service_date: toDateString(form.service_date!),
       service_time: toTimeString(form.service_time!),
       payment_method: form.payment_method,
+      payment_reference: form.payment_reference.trim() || null,
+      payment_proof_url,
       special_notes: form.special_notes || null,
       status: 'pending',
       payment_status: 'unpaid',
@@ -232,6 +335,7 @@ export default function NewBookingScreen() {
 
     setSubmitting(false)
     if (insertError) { setError(insertError.message); return }
+    await clearDraft()
     router.replace(`/(customer)/bookings/${data.id}`)
   }
 
@@ -245,16 +349,16 @@ export default function NewBookingScreen() {
             <View style={{
               width: 30, height: 30, borderRadius: 15,
               alignItems: 'center', justifyContent: 'center',
-              backgroundColor: n < step ? Colors.primary : n === step ? Colors.primary : '#e5e7eb',
+              backgroundColor: n < step ? Colors.primary : n === step ? Colors.primary : C.borderLight,
               opacity: n < step ? 0.55 : 1,
             }}>
               {n < step
                 ? <Feather name="check" size={14} color="#fff" />
-                : <Text style={{ fontSize: 12, fontWeight: '700', color: n === step ? '#fff' : '#9ca3af' }}>{n}</Text>
+                : <Text style={{ fontSize: 12, fontWeight: '700', color: n === step ? '#fff' : C.textMuted }}>{n}</Text>
               }
             </View>
             {n < 5 && (
-              <View style={{ flex: 1, height: 2, backgroundColor: n < step ? Colors.primary : '#e5e7eb' }} />
+              <View style={{ flex: 1, height: 2, backgroundColor: n < step ? Colors.primary : C.border }} />
             )}
           </Fragment>
         ))}
@@ -264,7 +368,7 @@ export default function NewBookingScreen() {
           <View key={label} style={{ flex: 1, alignItems: 'center' }}>
             <Text
               numberOfLines={1}
-              style={{ fontSize: 9, fontWeight: '600', color: i + 1 === step ? Colors.primary : '#9ca3af' }}
+              style={{ fontSize: 9, fontWeight: '600', color: i + 1 === step ? Colors.primary : C.textMuted }}
             >
               {label}
             </Text>
@@ -277,16 +381,16 @@ export default function NewBookingScreen() {
   const navBar = (
     <View style={{
       flexDirection: 'row', padding: 16, gap: 12,
-      borderTopWidth: 1, borderTopColor: '#e5e7eb', backgroundColor: '#fff',
+      borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.white,
     }}>
       <TouchableOpacity
         onPress={handleBack}
         style={{
           flex: 1, paddingVertical: 14, borderRadius: 12,
-          borderWidth: 1, borderColor: '#e5e7eb', alignItems: 'center',
+          borderWidth: 1, borderColor: C.border, alignItems: 'center',
         }}
       >
-        <Text style={{ color: '#6b7280', fontWeight: '600' }}>
+        <Text style={{ color: C.textSecondary, fontWeight: '600' }}>
           {step === 1 ? 'Cancel' : 'Back'}
         </Text>
       </TouchableOpacity>
@@ -311,7 +415,7 @@ export default function NewBookingScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: '#f9fafb' }}
+      style={{ flex: 1, backgroundColor: C.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <AppHeader
@@ -326,28 +430,28 @@ export default function NewBookingScreen() {
       {processing && (
         <View style={{
           position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(255,255,255,0.97)',
+          backgroundColor: C.background + 'f7',
           alignItems: 'center', justifyContent: 'center',
           zIndex: 100, padding: 32,
         }}>
           <View style={{
-            backgroundColor: '#fff', borderRadius: 24, padding: 32,
-            borderWidth: 1, borderColor: '#e5e7eb', alignItems: 'center',
+            backgroundColor: C.white, borderRadius: 24, padding: 32,
+            borderWidth: 1, borderColor: C.border, alignItems: 'center',
             shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.08, shadowRadius: 12, elevation: 8,
             width: '100%',
           }}>
             <View style={{
               width: 64, height: 64, borderRadius: 32,
-              backgroundColor: '#fdf2f8', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center',
               marginBottom: 16,
             }}>
               <ActivityIndicator size="large" color={Colors.primary} />
             </View>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 6 }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, marginBottom: 6 }}>
               AI Processing
             </Text>
-            <Text style={{ fontSize: 13, color: '#6b7280', marginBottom: 24, textAlign: 'center' }}>
+            <Text style={{ fontSize: 13, color: C.textSecondary, marginBottom: 24, textAlign: 'center' }}>
               Finding the best match for your booking...
             </Text>
             {AI_STEPS.map(item => (
@@ -358,19 +462,19 @@ export default function NewBookingScreen() {
               }}>
                 <View style={{
                   width: 26, height: 26, borderRadius: 13,
-                  backgroundColor: aiStep >= item.s ? Colors.primary : '#f3f4f6',
+                  backgroundColor: aiStep >= item.s ? Colors.primary : C.borderLight,
                   borderWidth: 1,
-                  borderColor: aiStep >= item.s ? Colors.primary : '#e5e7eb',
+                  borderColor: aiStep >= item.s ? Colors.primary : C.border,
                   alignItems: 'center', justifyContent: 'center',
                 }}>
                   {aiStep >= item.s
                     ? <Feather name="check" size={14} color="#fff" />
-                    : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#d1d5db' }} />
+                    : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.textMuted }} />
                   }
                 </View>
                 <Text style={{
                   fontSize: 14, fontWeight: '600',
-                  color: aiStep >= item.s ? '#111827' : '#9ca3af',
+                  color: aiStep >= item.s ? C.text : C.textMuted,
                 }}>
                   {item.label}
                 </Text>
@@ -386,11 +490,28 @@ export default function NewBookingScreen() {
         showsVerticalScrollIndicator={false}
       >
 
+        {/* Draft restored banner */}
+        {draftRestored && (
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 8,
+            backgroundColor: '#f0fdf4', borderRadius: 10, padding: 12,
+            borderWidth: 1, borderColor: '#bbf7d0', marginBottom: 12,
+          }}>
+            <Feather name="refresh-cw" size={14} color="#16a34a" />
+            <Text style={{ flex: 1, fontSize: 13, color: '#15803d', fontWeight: '600' }}>
+              Draft restored — continuing from Step {step} of 5
+            </Text>
+            <TouchableOpacity onPress={() => setDraftRestored(false)}>
+              <Feather name="x" size={14} color="#16a34a" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* ── Step 1: Service & Space ── */}
         {step === 1 && (
           <View style={{ gap: 20 }}>
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 10 }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10 }}>
                 Service Type
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -400,13 +521,13 @@ export default function NewBookingScreen() {
                     onPress={() => update('service_type', s)}
                     style={{
                       width: '47%', padding: 14, borderRadius: 12, borderWidth: 1.5,
-                      borderColor: form.service_type === s ? Colors.primary : '#e5e7eb',
-                      backgroundColor: form.service_type === s ? '#fdf2f8' : '#fff',
+                      borderColor: form.service_type === s ? Colors.primary : C.border,
+                      backgroundColor: form.service_type === s ? C.primaryBg : C.white,
                     }}
                   >
                     <Text style={{
                       fontSize: 13, fontWeight: '600',
-                      color: form.service_type === s ? Colors.primary : '#374151',
+                      color: form.service_type === s ? Colors.primary : C.text,
                     }}>
                       {SERVICE_LABELS[s]}
                     </Text>
@@ -416,7 +537,7 @@ export default function NewBookingScreen() {
             </View>
 
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 10 }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10 }}>
                 Space Type
               </Text>
               <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -426,14 +547,14 @@ export default function NewBookingScreen() {
                     onPress={() => update('space_type', o.key)}
                     style={{
                       flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5,
-                      borderColor: form.space_type === o.key ? Colors.primary : '#e5e7eb',
-                      backgroundColor: form.space_type === o.key ? '#fdf2f8' : '#fff',
+                      borderColor: form.space_type === o.key ? Colors.primary : C.border,
+                      backgroundColor: form.space_type === o.key ? C.primaryBg : C.white,
                       alignItems: 'center',
                     }}
                   >
                     <Text style={{
                       fontSize: 14, fontWeight: '600',
-                      color: form.space_type === o.key ? Colors.primary : '#374151',
+                      color: form.space_type === o.key ? Colors.primary : C.text,
                     }}>
                       {o.label}
                     </Text>
@@ -443,7 +564,7 @@ export default function NewBookingScreen() {
             </View>
 
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 8 }}>
                 Property Size (sqm)
               </Text>
               <TextInput
@@ -451,21 +572,20 @@ export default function NewBookingScreen() {
                 onChangeText={t => update('property_sqm', t)}
                 keyboardType="numeric"
                 placeholder="e.g. 60"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={C.textMuted}
                 style={{
-                  backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb',
+                  backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
                   borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-                  fontSize: 15, color: '#111827',
+                  fontSize: 15, color: C.text,
                 }}
               />
             </View>
 
-            {/* Sofa seaters */}
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 8 }}>
                 Number of Sofa Seaters
               </Text>
-              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+              <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 10 }}>
                 Include all sofas, sectionals, and upholstered chairs to be cleaned.
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
@@ -473,57 +593,79 @@ export default function NewBookingScreen() {
                   onPress={() => update('sofa_seaters', Math.max(0, form.sofa_seaters - 1))}
                   style={{
                     width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-                    borderWidth: 1.5, borderColor: form.sofa_seaters > 0 ? Colors.primary : '#e5e7eb',
-                    backgroundColor: form.sofa_seaters > 0 ? '#fdf2f8' : '#f9fafb',
+                    borderWidth: 1.5, borderColor: form.sofa_seaters > 0 ? Colors.primary : C.border,
+                    backgroundColor: form.sofa_seaters > 0 ? C.primaryBg : C.background,
                   }}
                 >
-                  <Text style={{ fontSize: 22, color: form.sofa_seaters > 0 ? Colors.primary : '#d1d5db', lineHeight: 26 }}>−</Text>
+                  <Text style={{ fontSize: 22, color: form.sofa_seaters > 0 ? Colors.primary : C.textMuted, lineHeight: 26 }}>−</Text>
                 </TouchableOpacity>
-                <Text style={{ fontSize: 26, fontWeight: '800', color: '#111827', minWidth: 40, textAlign: 'center' }}>
+                <Text style={{ fontSize: 26, fontWeight: '800', color: C.text, minWidth: 40, textAlign: 'center' }}>
                   {form.sofa_seaters}
                 </Text>
                 <TouchableOpacity
                   onPress={() => update('sofa_seaters', Math.min(20, form.sofa_seaters + 1))}
                   style={{
                     width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-                    borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: '#fdf2f8',
+                    borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: C.primaryBg,
                   }}
                 >
                   <Text style={{ fontSize: 22, color: Colors.primary, lineHeight: 26 }}>+</Text>
                 </TouchableOpacity>
                 {form.sofa_seaters > 0 && (
-                  <Text style={{ fontSize: 13, color: '#6b7280' }}>
+                  <Text style={{ fontSize: 13, color: C.textSecondary }}>
                     {form.sofa_seaters} seater{form.sofa_seaters !== 1 ? 's' : ''}
                   </Text>
                 )}
               </View>
             </View>
 
+            <View>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>
+                Other Furniture
+              </Text>
+              <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 8 }}>
+                List any other furniture that needs cleaning (e.g. 2 beds, 4 dining chairs, 1 office chair).
+              </Text>
+              <TextInput
+                value={form.other_furniture}
+                onChangeText={t => update('other_furniture', t)}
+                placeholder="e.g. 2 beds, 4 dining chairs, 1 curtain set"
+                placeholderTextColor={C.textMuted}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                style={{
+                  backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
+                  borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+                  fontSize: 14, color: C.text, minHeight: 72,
+                }}
+              />
+            </View>
+
             {/* Furniture photo upload */}
             <View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>
                   Furniture / Area Photos
                 </Text>
                 <View style={{
-                  backgroundColor: '#fce7f3', borderRadius: 6,
+                  backgroundColor: C.primaryBg, borderRadius: 6,
                   paddingHorizontal: 7, paddingVertical: 2,
                 }}>
                   <Text style={{ fontSize: 10, fontWeight: '700', color: Colors.primary }}>REQUIRED</Text>
                 </View>
               </View>
-              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+              <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 10 }}>
                 Upload photos of the area/furniture so our admin can verify and confirm the service rate. Up to 5 photos.
               </Text>
 
-              {/* Image grid */}
               {form.furniture_images.length > 0 && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                   {form.furniture_images.map((uri, i) => (
                     <View key={uri} style={{ position: 'relative' }}>
                       <Image
                         source={{ uri }}
-                        style={{ width: 80, height: 80, borderRadius: 10, backgroundColor: '#f3f4f6' }}
+                        style={{ width: 80, height: 80, borderRadius: 10, backgroundColor: C.borderLight }}
                         resizeMode="cover"
                       />
                       <TouchableOpacity
@@ -548,14 +690,14 @@ export default function NewBookingScreen() {
                     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
                     gap: 8, paddingVertical: 14, borderRadius: 12,
                     borderWidth: 1.5, borderStyle: 'dashed',
-                    borderColor: form.furniture_images.length === 0 ? Colors.primary : '#e5e7eb',
-                    backgroundColor: form.furniture_images.length === 0 ? '#fdf2f8' : '#f9fafb',
+                    borderColor: form.furniture_images.length === 0 ? Colors.primary : C.border,
+                    backgroundColor: form.furniture_images.length === 0 ? C.primaryBg : C.background,
                   }}
                 >
-                  <Feather name="camera" size={18} color={form.furniture_images.length === 0 ? Colors.primary : '#9ca3af'} />
+                  <Feather name="camera" size={18} color={form.furniture_images.length === 0 ? Colors.primary : C.textMuted} />
                   <Text style={{
                     fontSize: 14, fontWeight: '600',
-                    color: form.furniture_images.length === 0 ? Colors.primary : '#6b7280',
+                    color: form.furniture_images.length === 0 ? Colors.primary : C.textSecondary,
                   }}>
                     {form.furniture_images.length === 0 ? 'Upload Photos (Required)' : 'Add More Photos'}
                   </Text>
@@ -568,27 +710,27 @@ export default function NewBookingScreen() {
         {/* ── Step 2: Address + GPS ── */}
         {step === 2 && (
           <View style={{ gap: 16 }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>Service Address</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Service Address</Text>
 
             {[
-              { key: 'address_unit' as const, label: 'Unit / Floor (optional)', placeholder: 'e.g. Unit 3B' },
+              { key: 'address_unit' as const, label: 'Unit / Floor', placeholder: 'e.g. Unit 3B' },
               { key: 'address_street' as const, label: 'Street *', placeholder: 'e.g. 123 Rizal Ave' },
               { key: 'address_city' as const, label: 'City *', placeholder: 'e.g. Makati' },
               { key: 'address_province' as const, label: 'Province *', placeholder: 'e.g. Metro Manila' },
             ].map(field => (
               <View key={field.key}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 6 }}>
                   {field.label}
                 </Text>
                 <TextInput
                   value={form[field.key] as string}
                   onChangeText={t => update(field.key, t)}
                   placeholder={field.placeholder}
-                  placeholderTextColor="#9ca3af"
+                  placeholderTextColor={C.textMuted}
                   style={{
-                    backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb',
+                    backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
                     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-                    fontSize: 15, color: '#111827',
+                    fontSize: 15, color: C.text,
                   }}
                 />
               </View>
@@ -598,22 +740,22 @@ export default function NewBookingScreen() {
               onPress={() => setShowMap(true)}
               activeOpacity={0.85}
               style={{
-                backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden',
+                backgroundColor: C.white, borderRadius: 12, overflow: 'hidden',
                 borderWidth: form.service_lat ? 1.5 : 1,
-                borderColor: form.service_lat ? Colors.primary : '#e5e7eb',
+                borderColor: form.service_lat ? Colors.primary : C.border,
               }}
             >
               <View style={{
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                 paddingHorizontal: 14, paddingVertical: 12,
-                backgroundColor: form.service_lat ? '#fdf2f8' : '#fff',
+                backgroundColor: form.service_lat ? C.primaryBg : C.white,
               }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                   <View style={{
                     width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: form.service_lat ? Colors.primary : '#f3f4f6',
+                    backgroundColor: form.service_lat ? Colors.primary : C.borderLight,
                   }}>
-                    <Feather name="map-pin" size={16} color={form.service_lat ? '#fff' : '#9ca3af'} />
+                    <Feather name="map-pin" size={16} color={form.service_lat ? '#fff' : C.textMuted} />
                   </View>
                   <View style={{ flex: 1 }}>
                     {form.service_lat ? (
@@ -622,23 +764,23 @@ export default function NewBookingScreen() {
                           <Feather name="check-circle" size={11} color="#16a34a" />
                           <Text style={{ fontSize: 11, fontWeight: '700', color: '#16a34a' }}>Location pinned</Text>
                         </View>
-                        <Text style={{ fontSize: 13, color: '#374151', fontWeight: '500' }} numberOfLines={2}>
+                        <Text style={{ fontSize: 13, color: C.text, fontWeight: '500' }} numberOfLines={2}>
                           {form.service_address_label || `${form.service_lat.toFixed(5)}, ${form.service_lng!.toFixed(5)}`}
                         </Text>
                       </>
                     ) : (
                       <>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                          <View style={{ backgroundColor: '#fce7f3', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                          <View style={{ backgroundColor: C.primaryBg, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
                             <Text style={{ fontSize: 9, fontWeight: '800', color: Colors.primary }}>REQUIRED</Text>
                           </View>
                         </View>
-                        <Text style={{ fontSize: 13, color: '#6b7280' }}>Tap to pin your service location</Text>
+                        <Text style={{ fontSize: 13, color: C.textSecondary }}>Tap to pin your service location</Text>
                       </>
                     )}
                   </View>
                 </View>
-                <Feather name="chevron-right" size={16} color={form.service_lat ? Colors.primary : '#9ca3af'} />
+                <Feather name="chevron-right" size={16} color={form.service_lat ? Colors.primary : C.textMuted} />
               </View>
             </TouchableOpacity>
 
@@ -659,22 +801,22 @@ export default function NewBookingScreen() {
         {/* ── Step 3: Date & Time ── */}
         {step === 3 && (
           <View style={{ gap: 16 }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>
               Select Preferred Date & Time
             </Text>
 
             <TouchableOpacity
               onPress={() => setShowDatePicker(true)}
               style={{
-                backgroundColor: '#fff', borderWidth: 1.5,
-                borderColor: form.service_date ? Colors.primary : '#e5e7eb',
+                backgroundColor: C.white, borderWidth: 1.5,
+                borderColor: form.service_date ? Colors.primary : C.border,
                 borderRadius: 12, padding: 16,
               }}
             >
-              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Date *</Text>
+              <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 4 }}>Date *</Text>
               <Text style={{
                 fontSize: 15, fontWeight: '600',
-                color: form.service_date ? '#111827' : '#9ca3af',
+                color: form.service_date ? C.text : C.textMuted,
               }}>
                 {form.service_date ? formatDisplayDate(form.service_date) : 'Tap to select a date'}
               </Text>
@@ -684,7 +826,7 @@ export default function NewBookingScreen() {
               <DateTimePicker
                 mode="date"
                 value={form.service_date ?? new Date()}
-                minimumDate={new Date()}
+                minimumDate={new Date(Date.now() + 24 * 60 * 60 * 1000)}
                 display={Platform.OS === 'ios' ? 'inline' : 'default'}
                 onChange={(_e: DateTimePickerEvent, date?: Date) => {
                   if (Platform.OS === 'android') setShowDatePicker(false)
@@ -707,15 +849,15 @@ export default function NewBookingScreen() {
             <TouchableOpacity
               onPress={() => setShowTimePicker(true)}
               style={{
-                backgroundColor: '#fff', borderWidth: 1.5,
-                borderColor: form.service_time ? Colors.primary : '#e5e7eb',
+                backgroundColor: C.white, borderWidth: 1.5,
+                borderColor: form.service_time ? Colors.primary : C.border,
                 borderRadius: 12, padding: 16,
               }}
             >
-              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Time *</Text>
+              <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 4 }}>Time *</Text>
               <Text style={{
                 fontSize: 15, fontWeight: '600',
-                color: form.service_time ? '#111827' : '#9ca3af',
+                color: form.service_time ? C.text : C.textMuted,
               }}>
                 {form.service_time ? formatDisplayTime(form.service_time) : 'Tap to select a time'}
               </Text>
@@ -759,7 +901,7 @@ export default function NewBookingScreen() {
         {/* ── Step 4: Review Booking Details ── */}
         {step === 4 && (
           <View style={{ gap: 14 }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>Review Booking Details</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Review Booking Details</Text>
 
             {[
               {
@@ -769,6 +911,7 @@ export default function NewBookingScreen() {
                   { label: 'Space', value: form.space_type === 'residential' ? 'Residential' : 'Commercial' },
                   { label: 'Size', value: `${form.property_sqm} sqm` },
                   ...(form.sofa_seaters > 0 ? [{ label: 'Sofas', value: `${form.sofa_seaters} seater${form.sofa_seaters !== 1 ? 's' : ''}` }] : []),
+                  ...(form.other_furniture.trim() ? [{ label: 'Other', value: form.other_furniture.trim() }] : []),
                   { label: 'Photos', value: `${form.furniture_images.length} uploaded` },
                   {
                     label: 'Est. Price',
@@ -792,19 +935,19 @@ export default function NewBookingScreen() {
               },
             ].map(section => (
               <View key={section.title} style={{
-                backgroundColor: '#fff', borderRadius: 16, borderWidth: 1,
-                borderColor: '#e5e7eb', overflow: 'hidden',
+                backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+                borderColor: C.border, overflow: 'hidden',
               }}>
-                <View style={{ backgroundColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>{section.title}</Text>
+                <View style={{ backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>{section.title}</Text>
                 </View>
                 {section.rows.map((row, i) => (
                   <View key={row.label} style={{
                     flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10,
-                    borderBottomWidth: i < section.rows.length - 1 ? 1 : 0, borderBottomColor: '#f3f4f6',
+                    borderBottomWidth: i < section.rows.length - 1 ? 1 : 0, borderBottomColor: C.borderLight,
                   }}>
-                    <Text style={{ width: 80, fontSize: 13, color: '#6b7280' }}>{row.label}</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#111827' }}>{row.value}</Text>
+                    <Text style={{ width: 80, fontSize: 13, color: C.textSecondary }}>{row.label}</Text>
+                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: C.text }}>{row.value}</Text>
                   </View>
                 ))}
               </View>
@@ -840,55 +983,152 @@ export default function NewBookingScreen() {
               </Text>
             </View>
 
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827' }}>Select Payment Method</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Select Payment Method</Text>
 
             {PAYMENT_OPTIONS.map(p => (
               <TouchableOpacity
                 key={p.key}
                 onPress={() => update('payment_method', p.key)}
                 style={{
-                  flexDirection: 'row', alignItems: 'center', padding: 16,
-                  borderRadius: 12, borderWidth: 1.5,
-                  borderColor: form.payment_method === p.key ? Colors.primary : '#e5e7eb',
-                  backgroundColor: form.payment_method === p.key ? '#fdf2f8' : '#fff',
+                  flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14,
+                  borderRadius: 14, borderWidth: 1.5,
+                  borderColor: form.payment_method === p.key ? Colors.primary : C.border,
+                  backgroundColor: form.payment_method === p.key ? C.primaryBg : C.white,
                 }}
               >
+                {PAYMENT_ICONS[p.key]}
                 <View style={{ flex: 1 }}>
                   <Text style={{
                     fontSize: 15, fontWeight: '700',
-                    color: form.payment_method === p.key ? Colors.primary : '#111827',
+                    color: form.payment_method === p.key ? Colors.primary : C.text,
                   }}>
                     {p.label}
                   </Text>
-                  <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{p.desc}</Text>
+                  <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2 }}>{p.desc}</Text>
                 </View>
-                {form.payment_method === p.key && (
-                  <View style={{
-                    width: 22, height: 22, borderRadius: 11,
-                    backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>✓</Text>
-                  </View>
-                )}
+                <View style={{
+                  width: 22, height: 22, borderRadius: 11, borderWidth: 1.5,
+                  borderColor: form.payment_method === p.key ? Colors.primary : C.border,
+                  backgroundColor: form.payment_method === p.key ? Colors.primary : 'transparent',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {form.payment_method === p.key && (
+                    <Feather name="check" size={12} color="#fff" />
+                  )}
+                </View>
               </TouchableOpacity>
             ))}
 
+            {/* GCash / Bank Transfer proof section */}
+            {['gcash', 'bank_transfer'].includes(form.payment_method) && (
+              <View style={{
+                backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
+                borderColor: C.border, padding: 16, gap: 14,
+              }}>
+                <View style={{
+                  backgroundColor: '#fffbeb', borderRadius: 10, padding: 12,
+                  borderWidth: 1, borderColor: '#fde68a',
+                }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400e', marginBottom: 4 }}>
+                    {form.payment_method === 'gcash' ? 'GCash Payment Details' : 'Bank Transfer Details'}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#92400e', lineHeight: 18 }}>
+                    {form.payment_method === 'gcash'
+                      ? 'Send payment to our GCash number. Our admin will verify your payment before confirming your booking.'
+                      : 'Transfer to our bank account. Our admin will verify your payment before confirming your booking.'}
+                  </Text>
+                </View>
+
+                <View>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, marginBottom: 6 }}>
+                    Reference Number <Text style={{ color: Colors.primary }}>*</Text>
+                  </Text>
+                  <TextInput
+                    value={form.payment_reference}
+                    onChangeText={t => update('payment_reference', t)}
+                    placeholder={form.payment_method === 'gcash' ? 'e.g. 1234567890' : 'e.g. REF-20240625-001'}
+                    placeholderTextColor={C.textMuted}
+                    style={{
+                      backgroundColor: C.background, borderWidth: 1.5,
+                      borderColor: form.payment_reference.trim() ? Colors.primary : C.border,
+                      borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+                      fontSize: 15, color: C.text,
+                    }}
+                  />
+                </View>
+
+                <View>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, marginBottom: 6 }}>
+                    Proof of Payment <Text style={{ color: Colors.primary }}>*</Text>
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 8 }}>
+                    Attach a screenshot of your payment confirmation.
+                  </Text>
+                  {form.payment_proof_uri ? (
+                    <View style={{ position: 'relative', alignSelf: 'flex-start' }}>
+                      <Image
+                        source={{ uri: form.payment_proof_uri }}
+                        style={{ width: 120, height: 120, borderRadius: 12, backgroundColor: C.borderLight }}
+                        resizeMode="cover"
+                      />
+                      <TouchableOpacity
+                        onPress={() => update('payment_proof_uri', '')}
+                        style={{
+                          position: 'absolute', top: -8, right: -8,
+                          width: 24, height: 24, borderRadius: 12,
+                          backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <Feather name="x" size={13} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+                        if (status !== 'granted') {
+                          Alert.alert('Permission required', 'Please allow access to your photo library.')
+                          return
+                        }
+                        const result = await ImagePicker.launchImageLibraryAsync({
+                          mediaTypes: ['images'],
+                          quality: 0.8,
+                        })
+                        if (!result.canceled) update('payment_proof_uri', result.assets[0].uri)
+                      }}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                        gap: 8, paddingVertical: 14, borderRadius: 12,
+                        borderWidth: 1.5, borderStyle: 'dashed',
+                        borderColor: Colors.primary, backgroundColor: C.primaryBg,
+                      }}
+                    >
+                      <Feather name="upload" size={18} color={Colors.primary} />
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.primary }}>
+                        Upload Screenshot
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            )}
+
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 8 }}>
                 Special Notes (optional)
               </Text>
               <TextInput
                 value={form.special_notes}
                 onChangeText={t => update('special_notes', t)}
                 placeholder="e.g. Please bring eco-friendly products, gate code is 1234..."
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={C.textMuted}
                 multiline
                 numberOfLines={4}
                 textAlignVertical="top"
                 style={{
-                  backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb',
+                  backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
                   borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-                  fontSize: 14, color: '#111827', minHeight: 100,
+                  fontSize: 14, color: C.text, minHeight: 100,
                 }}
               />
             </View>
