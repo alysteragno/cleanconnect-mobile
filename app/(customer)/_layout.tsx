@@ -1,17 +1,20 @@
 import { Tabs } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
+import { useThemeColors } from '@/hooks/useThemeColors'
 
 export default function CustomerLayout() {
+  const C = useThemeColors()
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textMuted,
+        tabBarInactiveTintColor: C.textMuted,
         tabBarStyle: {
-          borderTopColor: Colors.border,
-          backgroundColor: Colors.white,
+          borderTopColor: C.border,
+          backgroundColor: C.white,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
@@ -34,7 +37,7 @@ export default function CustomerLayout() {
         name="support"
         options={{
           title: 'Support',
-          tabBarIcon: ({ color, size }) => <Feather name="help-circle" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Feather name="alert-circle" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
@@ -51,10 +54,7 @@ export default function CustomerLayout() {
           tabBarIcon: ({ color, size }) => <Feather name="user" color={color} size={size} />,
         }}
       />
-      <Tabs.Screen
-        name="notifications"
-        options={{ tabBarButton: () => null, title: 'Notifications' }}
-      />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   )
 }
