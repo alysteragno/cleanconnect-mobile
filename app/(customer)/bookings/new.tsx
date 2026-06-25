@@ -402,9 +402,13 @@ export default function NewBookingScreen() {
       if (!form.payment_method) return { title: 'Payment required', message: 'Please select a payment method to continue.' }
     }
     if (step === 6) {
-      if (isWallet(form.payment_method)) {
+      if (form.payment_method === 'gcash') {
         if (!/^\d{13}$/.test(form.payment_reference))
-          return { title: 'Invalid reference', message: `${WALLET_META[form.payment_method].label} reference must be exactly 13 digits.` }
+          return { title: 'Invalid reference', message: 'GCash reference must be exactly 13 digits.' }
+        if (!form.payment_proof_uri) return { title: 'Proof required', message: 'Please attach a screenshot of your payment confirmation.' }
+      }
+      if (form.payment_method === 'maya') {
+        if (!form.payment_reference.trim()) return { title: 'Reference required', message: 'Please enter the reference number from your Maya payment.' }
         if (!form.payment_proof_uri) return { title: 'Proof required', message: 'Please attach a screenshot of your payment confirmation.' }
       }
       if (form.payment_method === 'bank_transfer') {
@@ -1055,11 +1059,11 @@ export default function NewBookingScreen() {
                   </Text>
                   <TextInput
                     value={form.payment_reference}
-                    onChangeText={t => update('payment_reference', isWallet(form.payment_method) ? t.replace(/\D/g, '').slice(0, 13) : t)}
-                    placeholder={isWallet(form.payment_method) ? `13-digit ${WALLET_META[form.payment_method].label} reference` : 'e.g. REF-20240625-001'}
+                    onChangeText={t => update('payment_reference', form.payment_method === 'gcash' ? t.replace(/\D/g, '').slice(0, 13) : t)}
+                    placeholder={form.payment_method === 'gcash' ? '13-digit GCash reference' : form.payment_method === 'maya' ? 'Maya reference number' : 'e.g. REF-20240625-001'}
                     placeholderTextColor={C.textMuted}
-                    keyboardType={isWallet(form.payment_method) ? 'number-pad' : 'default'}
-                    maxLength={isWallet(form.payment_method) ? 13 : undefined}
+                    keyboardType={form.payment_method === 'gcash' ? 'number-pad' : 'default'}
+                    maxLength={form.payment_method === 'gcash' ? 13 : undefined}
                     style={{
                       backgroundColor: C.background, borderWidth: 1.5,
                       borderColor: form.payment_reference.trim() ? Colors.primary : C.border,
@@ -1067,7 +1071,7 @@ export default function NewBookingScreen() {
                       fontSize: 15, color: C.text,
                     }}
                   />
-                  {isWallet(form.payment_method) && (
+                  {form.payment_method === 'gcash' && (
                     <Text style={{ fontSize: 11, marginTop: 4, textAlign: 'right', color: form.payment_reference.length === 13 ? '#16a34a' : C.textMuted }}>
                       {form.payment_reference.length}/13 digits
                     </Text>
