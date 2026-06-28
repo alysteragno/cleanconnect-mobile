@@ -1,110 +1,223 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView,
-  ActivityIndicator, TextInput, Alert,
+  ActivityIndicator, TextInput, Alert, RefreshControl, Image, Linking, Platform, Animated,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { Feather, Ionicons } from '@expo/vector-icons'
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
+import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
-import { Booking, BookingStatus, Feedback, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
+import {
+  Booking, BookingStatus, Feedback,
+  STATUS_LABELS,
+} from '@/constants/types'
+import { getService } from '@/constants/services'
+import GCashLogo from '@/assets/gcash_logo.svg'
+import MayaLogo from '@/assets/maya_logo.svg'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 
 const STATUS_COLORS: Record<BookingStatus, string> = {
-  pending: '#ca8a04',
-  confirmed: Colors.primary,
+  pending:     '#ca8a04',
+  confirmed:   Colors.primary,
   in_progress: '#7c3aed',
-  completed: '#16a34a',
-  cancelled: '#dc2626',
+  completed:   '#16a34a',
+  cancelled:   '#dc2626',
+}
+
+const STATUS_ICONS: Record<BookingStatus, keyof typeof Feather.glyphMap> = {
+  pending:     'clock',
+  confirmed:   'check-circle',
+  in_progress: 'wind',
+  completed:   'award',
+  cancelled:   'x-circle',
 }
 
 const PROGRESS_STEPS: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'completed']
 
+const PAYMENT_LABELS: Record<string, string> = {
+  cash:          'Cash on Service Day',
+  gcash:         'GCash',
+  maya:          'Maya',
+  bank_transfer: 'Bank Transfer',
+  bank_check:    'Bank Check',
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 type BookingDetail = Booking & {
   cleaner_assignments?: Array<{
     status: string
-    profiles: { full_name: string; id: string } | null
+    cleaner_id: string | null
   }>
 }
 
-function formatDate(d: string) {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371
+  const toRad = (d: number) => d * Math.PI / 180
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function fmtEta(min: number) {
+  if (min < 60) return `~${min} min`
+  const h = Math.floor(min / 60), m = min % 60
+  return m > 0 ? `~${h}h ${m}m` : `~${h}h`
+}
+
+function starIcon(n: number, avg: number): 'star' | 'star-half' | 'star-outline' {
+  if (avg >= n) return 'star'
+  if (avg > n - 0.75) return 'star-half'
+  return 'star-outline'
+}
+
+function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-PH', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    month: 'short', day: 'numeric', year: 'numeric',
   })
 }
-function formatTime(t: string) {
+function fmtTime(t: string) {
   const [h, m] = t.split(':').map(Number)
-  const suffix = h >= 12 ? 'PM' : 'AM'
-  const hour = h % 12 || 12
-  return `${hour}:${m.toString().padStart(2, '0')} ${suffix}`
+  return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
 }
+
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function BookingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
-  const router = useRouter()
-  const C = useThemeColors()
+  const router  = useRouter()
+  const C       = useThemeColors()
+  const { isDark } = useTheme()
 
-  const [booking, setBooking] = useState<BookingDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [paymentSettings, setPaymentSettings] = useState<Record<string, string>>({})
+  const [booking,          setBooking]          = useState<BookingDetail | null>(null)
+  const [loading,          setLoading]          = useState(true)
+  const [deleted,          setDeleted]          = useState(false)
+  const [paymentSettings,  setPaymentSettings]  = useState<Record<string, string>>({})
   const [existingFeedback, setExistingFeedback] = useState<Feedback | null | undefined>(undefined)
-  const [rating, setRating] = useState(0)
-  const [comment, setComment] = useState('')
-  const [submittingFeedback, setSubmittingFeedback] = useState(false)
+  const [rating,           setRating]           = useState(0)
+  const [comment,          setComment]          = useState('')
+  const [submitting,       setSubmitting]       = useState(false)
+  const [refreshing,       setRefreshing]       = useState(false)
+  const [cleanerStats,     setCleanerStats]     = useState<{ avg: number; count: number } | null>(null)
+  const [cleanerEta,       setCleanerEta]       = useState<{ distKm: number; etaMin: number } | null>(null)
+  const [cleanerName,      setCleanerName]      = useState<string | null>(null)
+  const [cleanerLocation,  setCleanerLocation]  = useState<{ lat: number; lng: number } | null>(null)
 
+  useEffect(() => { load() }, [id])
+
+  // Live booking updates via Realtime
   useEffect(() => {
-    loadBooking()
+    if (!id) return
+    const ch = supabase
+      .channel(`bk-detail-${id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bookings', filter: `id=eq.${id}` }, () => load())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'bookings', filter: `id=eq.${id}` }, () => setDeleted(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cleaner_assignments', filter: `booking_id=eq.${id}` }, () => load())
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
   }, [id])
 
-  async function loadBooking() {
-    const { data } = await supabase
+  // Poll every 7 s as Realtime fallback so status always stays current
+  useEffect(() => {
+    if (!id) return
+    const iv = setInterval(load, 7000)
+    return () => clearInterval(iv)
+  }, [id])
+
+  // Auto-redirect 3 s after deletion
+  useEffect(() => {
+    if (!deleted) return
+    const t = setTimeout(() => router.replace('/(customer)/' as any), 3000)
+    return () => clearTimeout(t)
+  }, [deleted])
+
+  async function load() {
+    const { data: bk } = await supabase
       .from('bookings')
-      .select(`*, cleaner_assignments (status, profiles (full_name, id))`)
+      .select('*, cleaner_assignments(status, cleaner_id)')
       .eq('id', id)
       .maybeSingle()
 
-    if (!data) { setLoading(false); return }
-    setBooking(data as BookingDetail)
-    setLoading(false)
+    if (!bk) { setDeleted(true); setLoading(false); setRefreshing(false); return }
 
-    if (data.payment_method === 'gcash' || data.payment_method === 'bank_transfer') {
+    // Payment instructions for GCash / bank transfer
+    if (bk.payment_method === 'gcash' || bk.payment_method === 'bank_transfer') {
       const { data: settings } = await supabase
-        .from('settings')
-        .select('key, value')
+        .from('settings').select('key, value')
         .in('key', ['gcash_number', 'bank_name', 'bank_account', 'bank_account_name'])
       const map: Record<string, string> = {}
       ;(settings ?? []).forEach((s: { key: string; value: string }) => { map[s.key] = s.value })
       setPaymentSettings(map)
     }
 
-    if (data.status === 'completed') {
+    // Feedback for completed bookings
+    if (bk.status === 'completed') {
       const { data: fb } = await supabase
-        .from('feedback')
-        .select('*')
-        .eq('booking_id', id)
-        .maybeSingle()
+        .from('feedback').select('*').eq('booking_id', id).maybeSingle()
       setExistingFeedback(fb as Feedback | null)
     }
+
+    // Cleaner name, rating, and home-to-service ETA
+    // Assignment status is 'assigned' (set by admin web)
+    const assignedCleanerId = (bk.cleaner_assignments as any[])?.find((a: any) => a.status === 'assigned')?.cleaner_id
+    if (assignedCleanerId) {
+      const [{ data: ratings }, { data: cleanerProfile }] = await Promise.all([
+        supabase.from('feedback').select('rating').eq('cleaner_id', assignedCleanerId),
+        supabase.from('profiles').select('full_name, home_lat, home_lng').eq('id', assignedCleanerId).maybeSingle(),
+      ])
+      if (ratings && ratings.length > 0) {
+        const sum = ratings.reduce((s: number, r: { rating: number }) => s + r.rating, 0)
+        setCleanerStats({ avg: sum / ratings.length, count: ratings.length })
+      } else {
+        setCleanerStats(null)
+      }
+      setCleanerName((cleanerProfile as any)?.full_name ?? null)
+      const cLat = (cleanerProfile as any)?.home_lat
+      const cLng = (cleanerProfile as any)?.home_lng
+      if (cLat && cLng) {
+        setCleanerLocation({ lat: cLat, lng: cLng })
+        if (bk.service_lat && bk.service_lng) {
+          const distKm = haversineKm(cLat, cLng, bk.service_lat, bk.service_lng)
+          setCleanerEta({ distKm, etaMin: Math.round(distKm / 30 * 60) })
+        } else {
+          setCleanerEta(null)
+        }
+      } else {
+        setCleanerLocation(null)
+        setCleanerEta(null)
+      }
+    } else {
+      setCleanerName(null)
+      setCleanerStats(null)
+      setCleanerEta(null)
+      setCleanerLocation(null)
+    }
+
+    setBooking(bk as BookingDetail)
+    setLoading(false)
+    setRefreshing(false)
   }
 
   async function submitFeedback() {
     if (rating === 0) { Alert.alert('Rating required', 'Please select a star rating.'); return }
-    setSubmittingFeedback(true)
-    const accepted = booking?.cleaner_assignments?.find(a => a.status === 'accepted')
-    const cleaner_id = accepted?.profiles?.id ?? null
-
+    setSubmitting(true)
+    const cleaner_id = booking?.cleaner_assignments?.find(a => a.status === 'assigned')?.cleaner_id ?? null
     const { error } = await supabase.from('feedback').insert({
-      booking_id: id,
-      cleaner_id,
-      rating,
-      comment: comment.trim() || null,
+      booking_id: id, cleaner_id, rating, comment: comment.trim() || null,
     })
-    setSubmittingFeedback(false)
+    setSubmitting(false)
     if (error) { Alert.alert('Error', error.message); return }
-
-    setExistingFeedback({ id: '', booking_id: id, cleaner_id: cleaner_id ?? '', rating, comment, created_at: '' })
+    setExistingFeedback({ id: '', booking_id: id!, cleaner_id: cleaner_id ?? '', rating, comment, created_at: '' })
   }
+
+  // ── Loading / deleted states ─────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -114,221 +227,482 @@ export default function BookingDetailScreen() {
     )
   }
 
-  if (!booking) {
+  if (deleted || !booking) {
     return (
-      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={{ color: C.textSecondary, fontSize: 15 }}>Booking not found.</Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
-          <Text style={{ color: Colors.primary, fontWeight: '600' }}>Go Back</Text>
-        </TouchableOpacity>
+      <View style={{ flex: 1, backgroundColor: C.background }}>
+        <AppHeader showBack onBackPress={() => router.replace('/(customer)/' as any)} title="Booking Details" hideBell />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <View style={{
+            width: 88, height: 88, borderRadius: 44,
+            backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center', marginBottom: 24,
+          }}>
+            <Feather name="trash-2" size={38} color="#dc2626" />
+          </View>
+          <Text style={{ fontSize: 22, fontWeight: '800', color: C.text, textAlign: 'center', marginBottom: 10 }}>
+            Booking Removed
+          </Text>
+          <Text style={{ fontSize: 14, color: C.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 8 }}>
+            This booking has been removed by the administrator.
+          </Text>
+          <Text style={{ fontSize: 13, color: C.textMuted, textAlign: 'center', lineHeight: 20, marginBottom: 36 }}>
+            If you believe this is a mistake, please reach out through the Support tab.
+          </Text>
+          <Text style={{ fontSize: 12, color: C.textMuted, marginBottom: 20 }}>Redirecting to home…</Text>
+          <TouchableOpacity
+            onPress={() => router.replace('/(customer)/' as any)}
+            style={{
+              paddingHorizontal: 32, paddingVertical: 14,
+              backgroundColor: Colors.primary, borderRadius: 14,
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Go to Home</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     )
   }
 
-  const acceptedAssignment = booking.cleaner_assignments?.find(a => a.status === 'accepted')
-  const cleanerName = acceptedAssignment?.profiles?.full_name ?? null
-  const currentProgressIndex = PROGRESS_STEPS.indexOf(booking.status as BookingStatus)
+  // ── Derived display values ───────────────────────────────────────────────
+
+  // Look up the exact service from local catalog using the slug saved on the booking.
+  // This is the source of truth for name, image, accent color, category, and icon.
+  // service_slug was backfilled on existing bookings and is saved on all new ones.
+  const svc         = booking.service_slug ? getService(booking.service_slug) : undefined
+  const serviceName = svc?.name ?? booking.service_name ?? 'Cleaning Service'
+  const svcImage    = svc?.image ?? null
+  const svcAccent   = svc?.accent ?? Colors.primary
+  const svcCategory = (svc?.category ?? 'Cleaning').toUpperCase()
+  const svcIcon     = (svc?.placeholderIcon ?? 'home') as keyof typeof Feather.glyphMap
+
+  const progressIdx  = PROGRESS_STEPS.indexOf(booking.status as BookingStatus)
+  const statusColor  = STATUS_COLORS[booking.status as BookingStatus]
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <View style={{ flex: 1, backgroundColor: C.background }}>
-      <AppHeader
-        showBack
-        onBackPress={() => router.back()}
-        title={SERVICE_LABELS[booking.service_type]}
-        subtitle={`Booking #${booking.id.slice(0, 8).toUpperCase()}`}
-        hideBell
-        rightContent={
-          <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: STATUS_COLORS[booking.status] + '30' }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: STATUS_COLORS[booking.status] }}>{STATUS_LABELS[booking.status]}</Text>
-          </View>
+      <AppHeader showBack onBackPress={() => router.back()} title="Booking Details" hideBell />
+
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); load() }}
+            tintColor={isDark ? '#ffffff' : Colors.primary}
+            colors={isDark ? ['#ffffff'] : [Colors.primary]}
+            progressBackgroundColor={isDark ? '#334155' : '#ffffff'}
+          />
         }
-      />
+      >
 
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
+        {/* ── Status banner ── */}
+        {booking.status === 'pending' && (
+          <StatusBanner icon="clock" title="Awaiting Confirmation"
+            body="Our team is reviewing your booking and will confirm it shortly."
+            bg="#fff7ed" accent="#f59e0b" titleColor="#78350f" bodyColor="#92400e" />
+        )}
+        {booking.status === 'confirmed' && (
+          <StatusBanner icon="check-circle" title="Booking Confirmed"
+            body={cleanerName ? `${cleanerName} has been assigned to your booking.` : 'Your booking is confirmed. A cleaner will be assigned soon.'}
+            bg="#fdf2f8" accent={Colors.primary} titleColor="#831843" bodyColor="#9d174d" />
+        )}
+        {booking.status === 'in_progress' && (
+          <StatusBanner icon="wind" title="Cleaning in Progress"
+            body={cleanerName ? `${cleanerName} is currently cleaning your space.` : 'Your space is currently being cleaned.'}
+            bg="#f5f3ff" accent="#7c3aed" titleColor="#4c1d95" bodyColor="#5b21b6" live />
+        )}
+        {booking.status === 'completed' && (
+          <StatusBanner icon="check-circle" title="Service Completed"
+            body="Your space has been cleaned. We hope you're satisfied with the service!"
+            bg="#f0fdf4" accent="#16a34a" titleColor="#14532d" bodyColor="#166534" />
+        )}
 
-        {/* Status tracker */}
-        {booking.status === 'cancelled' ? (
+        {/* ── Hero card — image stacked above content ── */}
+        <View style={{ margin: 16, borderRadius: 24, overflow: 'hidden', backgroundColor: '#0f172a' }}>
+          {svcImage && (
+            <Image source={svcImage} style={{ width: '100%', height: 180 }} resizeMode="cover" />
+          )}
+          <HeroContent
+            booking={booking}
+            serviceName={serviceName}
+            accent={svcAccent}
+            category={svcCategory}
+            icon={svcIcon}
+            statusColor={statusColor}
+          />
+        </View>
+
+        {/* ── Progress tracker ── */}
+        {booking.status !== 'cancelled' ? (
           <View style={{
-            backgroundColor: C.errorBg, borderRadius: 14, padding: 16,
-            borderWidth: 1, borderColor: '#fca5a5', alignItems: 'center',
+            marginHorizontal: 16, marginBottom: 14, padding: 20,
+            backgroundColor: C.white, borderRadius: 18, borderWidth: 1, borderColor: C.border,
           }}>
-            <Text style={{ fontSize: 15, fontWeight: '700', color: '#dc2626' }}>Booking Cancelled</Text>
-            <Text style={{ fontSize: 13, color: '#b91c1c', marginTop: 4 }}>
-              This booking has been cancelled. Contact support for assistance.
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+              {PROGRESS_STEPS.map((s, i) => {
+                const done   = i < progressIdx
+                const active = i === progressIdx
+                return (
+                  <View key={s} style={{ flex: 1, alignItems: 'center' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+                      <View style={{ flex: 1, height: 2, backgroundColor: i === 0 ? 'transparent' : (done || active) ? Colors.primary : C.border }} />
+                      <View style={{
+                        width: 30, height: 30, borderRadius: 15,
+                        alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: (done || active) ? Colors.primary : C.borderLight,
+                      }}>
+                        {done
+                          ? <Feather name="check" size={14} color="#fff" />
+                          : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: active ? '#fff' : C.textMuted }} />
+                        }
+                      </View>
+                      <View style={{ flex: 1, height: 2, backgroundColor: i === PROGRESS_STEPS.length - 1 ? 'transparent' : done ? Colors.primary : C.border }} />
+                    </View>
+                    <Text style={{
+                      fontSize: 9, fontWeight: '700', marginTop: 7, textAlign: 'center', lineHeight: 13,
+                      color: (done || active) ? Colors.primary : C.textMuted, letterSpacing: 0.2,
+                    }}>
+                      {STATUS_LABELS[s]}
+                    </Text>
+                  </View>
+                )
+              })}
+            </View>
           </View>
         ) : (
-          <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 20 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 16 }}>
-              Booking Progress
-            </Text>
-            <View style={{ flexDirection: 'row' }}>
-              {PROGRESS_STEPS.map((s, i) => (
-                <View key={s} style={{ flex: 1, alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
-                    <View style={{
-                      flex: 1, height: 2,
-                      backgroundColor: i === 0 ? 'transparent' : i <= currentProgressIndex ? Colors.primary : C.border,
-                    }} />
-                    <View style={{
-                      width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-                      backgroundColor: i <= currentProgressIndex ? Colors.primary : C.borderLight,
-                      borderWidth: 2,
-                      borderColor: i <= currentProgressIndex ? Colors.primary : C.border,
-                    }}>
-                      {i < currentProgressIndex
-                        ? <Feather name="check" size={13} color="#fff" />
-                        : <View style={{
-                            width: 7, height: 7, borderRadius: 3.5,
-                            backgroundColor: i === currentProgressIndex ? '#fff' : C.textMuted,
-                          }} />
-                      }
-                    </View>
-                    <View style={{
-                      flex: 1, height: 2,
-                      backgroundColor: i === PROGRESS_STEPS.length - 1 ? 'transparent' : i < currentProgressIndex ? Colors.primary : C.border,
-                    }} />
-                  </View>
-                  <Text style={{
-                    fontSize: 9, fontWeight: '600', marginTop: 6, textAlign: 'center',
-                    color: i <= currentProgressIndex ? Colors.primary : C.textMuted,
-                    lineHeight: 13,
-                  }}>
-                    {STATUS_LABELS[s]}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Cleaner En Route banner */}
-        {booking.status === 'confirmed' && acceptedAssignment && (
           <View style={{
-            backgroundColor: '#eff6ff', borderRadius: 14, borderWidth: 1,
-            borderColor: '#93c5fd', padding: 16,
-            flexDirection: 'row', alignItems: 'center', gap: 12,
+            marginHorizontal: 16, marginBottom: 14,
+            backgroundColor: '#fee2e2', borderRadius: 16, borderWidth: 1, borderColor: '#fca5a5',
+            padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
           }}>
-            <View style={{
-              width: 42, height: 42, borderRadius: 21,
-              backgroundColor: '#dbeafe', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Feather name="navigation" size={20} color="#2563eb" />
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center' }}>
+              <Feather name="x" size={18} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontWeight: '800', color: '#1d4ed8' }}>
-                Cleaner En Route
-              </Text>
-              <Text style={{ fontSize: 13, color: '#3b82f6', marginTop: 2 }}>
-                {cleanerName ?? 'Your cleaner'} is on the way to your location.
-              </Text>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#dc2626' }}>Booking Cancelled</Text>
+              <Text style={{ fontSize: 12, color: '#b91c1c', marginTop: 2 }}>Contact support if you need assistance.</Text>
             </View>
           </View>
         )}
 
-        <DetailCard title="Service Details" C={C} rows={[
-          { label: 'Service', value: SERVICE_LABELS[booking.service_type] },
-          { label: 'Space', value: booking.space_type === 'residential' ? 'Residential' : 'Commercial' },
-          { label: 'Size', value: `${booking.property_sqm} sqm` },
-          ...(cleanerName ? [{ label: 'Cleaner', value: cleanerName }] : []),
-        ]} />
-
-        <DetailCard title="Service Address" C={C} rows={[
-          {
-            label: 'Address',
-            value: [booking.address_unit, booking.address_street, booking.address_city, booking.address_province]
-              .filter(Boolean).join(', ') || '—',
-          },
-          ...(booking.service_lat ? [{
-            label: 'GPS',
-            value: `${booking.service_lat.toFixed(5)}, ${booking.service_lng!.toFixed(5)}`,
-          }] : []),
-        ]} />
-
-        <DetailCard title="Schedule" C={C} rows={[
-          { label: 'Date', value: formatDate(booking.service_date) },
-          { label: 'Time', value: formatTime(booking.service_time) },
-          { label: 'Duration', value: `~${booking.duration_hours}h` },
-          { label: 'ETA', value: booking.status === 'cancelled' ? '—' : formatTime(booking.service_time) },
-        ]} />
-
-        <DetailCard title="Payment" C={C} rows={[
-          { label: 'Method', value: booking.payment_method.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) },
-          { label: 'Est. Price', value: `₱${Number(booking.base_price).toLocaleString()}` },
-          { label: 'Status', value: booking.payment_status.replace(/\b\w/g, c => c.toUpperCase()), highlight: booking.payment_status === 'paid' },
-        ]} />
-
-        {/* Payment instructions */}
-        {(booking.payment_method === 'gcash' || booking.payment_method === 'bank_transfer') &&
-          Object.keys(paymentSettings).length > 0 && (
-          <View style={{
-            backgroundColor: C.primaryBg, borderRadius: 16, borderWidth: 1,
-            borderColor: Colors.primary + '40', padding: 16,
-          }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary, marginBottom: 10 }}>
-              How to Pay
+{/* ── Payment ── */}
+        <View style={{
+          marginHorizontal: 16, marginBottom: 14,
+          backgroundColor: C.white, borderRadius: 18, borderWidth: 1, borderColor: C.border, overflow: 'hidden',
+        }}>
+          <View style={{ backgroundColor: C.background, paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+              Payment
             </Text>
-            {booking.payment_method === 'gcash' && paymentSettings.gcash_number && (
-              <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>GCash #</Text>
-                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>
-                  {paymentSettings.gcash_number}
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
+            <Text style={{ flex: 1, fontSize: 13, color: C.textSecondary }}>Method</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {booking.payment_method === 'gcash' && (
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.borderLight, overflow: 'hidden' }}>
+                  <GCashLogo width={28} height={28} />
+                </View>
+              )}
+              {booking.payment_method === 'maya' && (
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#0a1628', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  <MayaLogo width={26} height={8} />
+                </View>
+              )}
+              {booking.payment_method === 'cash' && (
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800' }}>₱</Text>
+                </View>
+              )}
+              {booking.payment_method === 'bank_transfer' && (
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#1d4ed8', alignItems: 'center', justifyContent: 'center' }}>
+                  <Feather name="home" size={18} color="#fff" />
+                </View>
+              )}
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>
+                {PAYMENT_LABELS[booking.payment_method] ?? booking.payment_method}
+              </Text>
+            </View>
+          </View>
+          {([
+            { label: 'Amount',    value: `₱${Number(booking.base_price).toLocaleString()}` },
+            ...(booking.payment_reference ? [{ label: 'Reference', value: booking.payment_reference }] : []),
+          ] as Array<{ label: string; value: string }>).map((row, i, arr) => (
+            <View key={row.label} style={{
+              flexDirection: 'row', alignItems: 'center',
+              paddingHorizontal: 18, paddingVertical: 13,
+              borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight,
+            }}>
+              <Text style={{ flex: 1, fontSize: 13, color: C.textSecondary }}>{row.label}</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>{row.value}</Text>
+            </View>
+          ))}
+        </View>
+        {/* ── Location ── */}
+        <View style={{
+          marginHorizontal: 16, marginBottom: 14, padding: 20,
+          backgroundColor: C.white, borderRadius: 18, borderWidth: 1, borderColor: C.border,
+        }}>
+          <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 16 }}>
+            Service Location
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 14 }}>
+            <View style={{ alignItems: 'center', paddingTop: 3 }}>
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary }} />
+              <View style={{ width: 1.5, flex: 1, minHeight: booking.service_lat ? 32 : 0, backgroundColor: C.border, marginVertical: 5 }} />
+              {booking.service_lat && (
+                <View style={{ width: 10, height: 10, borderRadius: 5, borderWidth: 2.5, borderColor: Colors.primary, backgroundColor: C.white }} />
+              )}
+            </View>
+            <View style={{ flex: 1, gap: 18 }}>
+              <View>
+                <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 3 }}>Address</Text>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>
+                  {[booking.address_unit, booking.address_street].filter(Boolean).join(', ') || '—'}
+                </Text>
+                <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2 }}>
+                  {[booking.address_city, booking.address_province].filter(Boolean).join(', ')}
                 </Text>
               </View>
-            )}
-            {booking.payment_method === 'bank_transfer' && (
-              <>
-                {paymentSettings.bank_name && (
-                  <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                    <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>Bank</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>{paymentSettings.bank_name}</Text>
+              {booking.service_lat ? (
+                <View>
+                  <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 3 }}>GPS Coordinates</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>
+                    {booking.service_lat.toFixed(5)}, {booking.service_lng!.toFixed(5)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </View>
+
+        {/* ── Assigned cleaner card ── */}
+        {cleanerName && (
+          <View style={{
+            marginHorizontal: 16, marginBottom: 14,
+            borderRadius: 20, overflow: 'hidden',
+            backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
+          }}>
+            {/* Pink header */}
+            <View style={{ backgroundColor: Colors.primary, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <View style={{
+                width: 52, height: 52, borderRadius: 26,
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff' }}>
+                  {cleanerName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
+                  Assigned Cleaner
+                </Text>
+                <Text style={{ fontSize: 17, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>{cleanerName}</Text>
+                {cleanerStats ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <Ionicons key={n} name={starIcon(n, cleanerStats.avg)} size={12} color="rgba(255,255,255,0.85)" />
+                    ))}
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', marginLeft: 2 }}>
+                      {cleanerStats.avg.toFixed(1)} ({cleanerStats.count})
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>No reviews yet</Text>
+                )}
+              </View>
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>✓ Assigned</Text>
+              </View>
+            </View>
+
+            {/* ETA + Maps — only for active statuses */}
+            {(booking.status === 'confirmed' || booking.status === 'in_progress') && (
+              <View style={{ padding: 16, gap: 12 }}>
+
+                {/* ETA tile */}
+                {cleanerEta && (
+                  <View style={{
+                    backgroundColor: C.primaryBg, borderRadius: 14, padding: 16,
+                    flexDirection: 'row', alignItems: 'center', gap: 14,
+                    borderWidth: 1, borderColor: Colors.primary + '25',
+                  }}>
+                    <View style={{
+                      width: 48, height: 48, borderRadius: 24,
+                      backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
+                      shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.35, shadowRadius: 8, elevation: 4,
+                    }}>
+                      <Feather name="navigation" size={22} color="#fff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 11, color: Colors.primary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+                        Est. Travel Time
+                      </Text>
+                      <Text style={{ fontSize: 26, fontWeight: '800', color: C.text, letterSpacing: -0.5 }}>
+                        {fmtEta(cleanerEta.etaMin)}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 1 }}>
+                        {cleanerEta.distKm.toFixed(1)} km from cleaner's location
+                      </Text>
+                    </View>
                   </View>
                 )}
-                {paymentSettings.bank_account && (
-                  <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                    <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>Account #</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>{paymentSettings.bank_account}</Text>
+
+                {/* Platform Maps card — Grab-style */}
+                {cleanerLocation ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      const { lat, lng } = cleanerLocation
+                      const url = Platform.OS === 'ios'
+                        ? `maps://?ll=${lat},${lng}&q=Cleaner's%20Starting%20Point`
+                        : `https://maps.google.com/?q=${lat},${lng}`
+                      Linking.openURL(url)
+                    }}
+                    activeOpacity={0.88}
+                    style={{
+                      borderRadius: 18, overflow: 'hidden',
+                      shadowColor: Platform.OS === 'ios' ? '#0d47a1' : '#b71c1c',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.18, shadowRadius: 10, elevation: 5,
+                    }}
+                  >
+                    {/* Branded header */}
+                    <View style={{
+                      backgroundColor: Platform.OS === 'ios' ? '#0d47a1' : '#c62828',
+                      paddingVertical: 16, paddingHorizontal: 18,
+                      flexDirection: 'row', alignItems: 'center', gap: 14,
+                    }}>
+                      {/* App icon */}
+                      <View style={{
+                        width: 52, height: 52, borderRadius: 15,
+                        backgroundColor: 'rgba(255,255,255,0.15)',
+                        alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)',
+                      }}>
+                        {Platform.OS === 'ios'
+                          ? <MaterialCommunityIcons name="apple" size={28} color="#fff" />
+                          : <MaterialCommunityIcons name="google-maps" size={28} color="#fff" />
+                        }
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        {/* App badge pill */}
+                        <View style={{
+                          alignSelf: 'flex-start',
+                          backgroundColor: 'rgba(255,255,255,0.18)',
+                          borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3,
+                          borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+                          marginBottom: 5,
+                        }}>
+                          <Text style={{ fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.92)', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                            {Platform.OS === 'ios' ? 'Apple Maps' : 'Google Maps'}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>
+                          View Cleaner's Location
+                        </Text>
+                        <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', marginTop: 2 }}>
+                          See where your cleaner starts from
+                        </Text>
+                      </View>
+
+                      {/* Open button */}
+                      <View style={{
+                        width: 38, height: 38, borderRadius: 19,
+                        backgroundColor: 'rgba(255,255,255,0.18)',
+                        alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+                      }}>
+                        <Feather name="external-link" size={16} color="#fff" />
+                      </View>
+                    </View>
+
+                    {/* Coordinates info row */}
+                    <View style={{
+                      backgroundColor: C.white,
+                      paddingVertical: 12, paddingHorizontal: 16,
+                      flexDirection: 'row', alignItems: 'center', gap: 10,
+                      borderTopWidth: 0,
+                    }}>
+                      <View style={{
+                        width: 30, height: 30, borderRadius: 9,
+                        backgroundColor: Platform.OS === 'ios' ? '#e8f0fc' : '#fce8e6',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Feather
+                          name="crosshair"
+                          size={13}
+                          color={Platform.OS === 'ios' ? '#0d47a1' : '#c62828'}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.text }}>
+                          Starting point
+                        </Text>
+                        <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 1, fontVariant: ['tabular-nums'] }}>
+                          {cleanerLocation.lat.toFixed(5)}, {cleanerLocation.lng.toFixed(5)}
+                        </Text>
+                      </View>
+                      <View style={{
+                        backgroundColor: Platform.OS === 'ios' ? '#e8f0fc' : '#fce8e6',
+                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
+                      }}>
+                        <Text style={{
+                          fontSize: 10, fontWeight: '700',
+                          color: Platform.OS === 'ios' ? '#0d47a1' : '#c62828',
+                          letterSpacing: 0.3,
+                        }}>
+                          {Platform.OS === 'ios' ? '🗺 Apple Maps' : '📍 Google Maps'}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Feather name="info" size={14} color={C.textMuted} />
+                    <Text style={{ fontSize: 12, color: C.textMuted, flex: 1 }}>
+                      Cleaner location not set yet.
+                    </Text>
                   </View>
                 )}
-                {paymentSettings.bank_account_name && (
-                  <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                    <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>Account Name</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>{paymentSettings.bank_account_name}</Text>
-                  </View>
-                )}
-              </>
+              </View>
             )}
           </View>
         )}
 
+
+
+        {/* ── Special notes ── */}
         {booking.special_notes && (
           <View style={{
-            backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16,
+            marginHorizontal: 16, marginBottom: 14,
+            backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 18,
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 6 }}>Special Notes</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSecondary, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
+              Special Notes
+            </Text>
             <Text style={{ fontSize: 13, color: C.textSecondary, lineHeight: 20 }}>{booking.special_notes}</Text>
           </View>
         )}
 
-        {/* Rate & Feedback */}
+        {/* ── Rate & Feedback ── */}
         {booking.status === 'completed' && (
           <View style={{
-            backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 20,
+            marginHorizontal: 16, marginBottom: 14,
+            backgroundColor: C.white, borderRadius: 18, borderWidth: 1, borderColor: C.border, padding: 20,
           }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 14 }}>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: C.text, marginBottom: 16 }}>
               Rate Your Experience
             </Text>
-
             {existingFeedback ? (
-              <View style={{ alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
-                  {[1, 2, 3, 4, 5].map(n => (
-                    <Ionicons
-                      key={n}
-                      name={n <= existingFeedback.rating ? 'star' : 'star-outline'}
-                      size={28}
-                      color={n <= existingFeedback.rating ? '#f59e0b' : C.border}
-                    />
+              <View style={{ alignItems: 'center', gap: 10 }}>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {[1,2,3,4,5].map(n => (
+                    <Ionicons key={n} name={n <= existingFeedback.rating ? 'star' : 'star-outline'} size={28} color={n <= existingFeedback.rating ? '#f59e0b' : C.border} />
                   ))}
                 </View>
                 {existingFeedback.comment && (
@@ -336,49 +710,33 @@ export default function BookingDetailScreen() {
                     "{existingFeedback.comment}"
                   </Text>
                 )}
-                <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>
-                  Thank you for your feedback!
-                </Text>
+                <Text style={{ fontSize: 12, color: C.textMuted }}>Thank you for your feedback!</Text>
               </View>
             ) : existingFeedback === null ? (
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 16 }}>
-                  {[1, 2, 3, 4, 5].map(n => (
+              <View style={{ gap: 14 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
+                  {[1,2,3,4,5].map(n => (
                     <TouchableOpacity key={n} onPress={() => setRating(n)}>
-                      <Ionicons
-                        name={n <= rating ? 'star' : 'star-outline'}
-                        size={36}
-                        color={n <= rating ? '#f59e0b' : C.border}
-                      />
+                      <Ionicons name={n <= rating ? 'star' : 'star-outline'} size={36} color={n <= rating ? '#f59e0b' : C.border} />
                     </TouchableOpacity>
                   ))}
                 </View>
-
                 <TextInput
-                  value={comment}
-                  onChangeText={setComment}
+                  value={comment} onChangeText={setComment}
                   placeholder="Share your experience (optional)..."
                   placeholderTextColor={C.textMuted}
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
+                  multiline numberOfLines={3} textAlignVertical="top"
                   style={{
                     backgroundColor: C.background, borderWidth: 1, borderColor: C.border,
                     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
-                    fontSize: 14, color: C.text, minHeight: 80, marginBottom: 12,
+                    fontSize: 14, color: C.text, minHeight: 80,
                   }}
                 />
-
                 <TouchableOpacity
-                  onPress={submitFeedback}
-                  disabled={submittingFeedback}
-                  style={{
-                    backgroundColor: Colors.primary, borderRadius: 12,
-                    paddingVertical: 13, alignItems: 'center',
-                    opacity: submittingFeedback ? 0.7 : 1,
-                  }}
+                  onPress={submitFeedback} disabled={submitting}
+                  style={{ backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 13, alignItems: 'center', opacity: submitting ? 0.7 : 1 }}
                 >
-                  {submittingFeedback
+                  {submitting
                     ? <ActivityIndicator color="#fff" />
                     : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Submit Review</Text>
                   }
@@ -390,42 +748,198 @@ export default function BookingDetailScreen() {
           </View>
         )}
 
-        <View style={{ height: 16 }} />
       </ScrollView>
     </View>
   )
 }
 
-function DetailCard({ title, rows, C }: {
-  title: string
-  rows: Array<{ label: string; value: string; highlight?: boolean }>
-  C: ReturnType<typeof useThemeColors>
+// ── Hero content ──────────────────────────────────────────────────────────────
+
+function HeroContent({
+  booking, serviceName, accent, category, icon, statusColor,
+}: {
+  booking:     BookingDetail
+  serviceName: string
+  accent:      string
+  category:    string
+  icon:        keyof typeof Feather.glyphMap
+  statusColor: string
 }) {
   return (
-    <View style={{
-      backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
-      borderColor: C.border, overflow: 'hidden',
-    }}>
+    <View style={{ padding: 22 }}>
+
+      {/* Decorative icon — top right */}
       <View style={{
-        backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 10,
-        borderBottomWidth: 1, borderBottomColor: C.border,
+        position: 'absolute', top: 20, right: 20,
+        width: 76, height: 76, borderRadius: 22,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.18)',
+        alignItems: 'center', justifyContent: 'center',
       }}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>{title}</Text>
+        <Feather name={icon} size={34} color="#fff" style={{ opacity: 0.75 }} />
       </View>
-      {rows.map((row, i) => (
-        <View key={row.label} style={{
-          flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 11,
-          borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: C.borderLight,
+
+      {/* Status badge + booking ID */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, paddingRight: 90 }}>
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', gap: 5,
+          backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 99,
+          paddingHorizontal: 12, paddingVertical: 5,
         }}>
-          <Text style={{ width: 90, fontSize: 13, color: C.textSecondary }}>{row.label}</Text>
-          <Text style={{
-            flex: 1, fontSize: 13, fontWeight: '600',
-            color: row.highlight ? '#16a34a' : C.text,
-          }}>
-            {row.value}
+          <Feather name={STATUS_ICONS[booking.status as BookingStatus]} size={10} color={statusColor} />
+          <Text style={{ fontSize: 11, fontWeight: '800', color: statusColor }}>
+            {STATUS_LABELS[booking.status as BookingStatus]}
           </Text>
         </View>
-      ))}
+        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '600', letterSpacing: 0.5 }}>
+          #{booking.id.slice(0, 8).toUpperCase()}
+        </Text>
+      </View>
+
+      {/* Category pill */}
+      <View style={{
+        alignSelf: 'flex-start', marginBottom: 8,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 3,
+        borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)',
+      }}>
+        <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.5 }}>
+          {category}
+        </Text>
+      </View>
+
+      {/* Service name */}
+      <Text style={{ fontSize: 24, fontWeight: '800', color: '#fff', marginBottom: 4, letterSpacing: -0.5 }}>
+        {serviceName}
+      </Text>
+      <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', marginBottom: 24 }}>
+        {booking.space_type === 'residential' ? 'Residential'
+          : booking.space_type === 'condo' ? 'Condo'
+          : booking.space_type === 'office' ? 'Office'
+          : 'Commercial'} · {booking.property_sqm} sqm
+        {booking.sofa_seaters ? ` · ${booking.sofa_seaters} sofa${booking.sofa_seaters !== 1 ? 's' : ''}` : ''}
+      </Text>
+
+      {/* Date / Time / Duration columns */}
+      <View style={{ flexDirection: 'row', marginBottom: 22 }}>
+        {[
+          { label: 'Date', value: fmtDate(booking.service_date) },
+          { label: 'Time', value: fmtTime(booking.service_time) },
+          { label: 'Est.',  value: `~${booking.duration_hours}h` },
+        ].map((col, i) => (
+          <View key={col.label} style={{ flex: 1 }}>
+            {i > 0 && (
+              <View style={{ position: 'absolute', left: 0, top: 2, bottom: 2, width: 1, backgroundColor: 'rgba(255,255,255,0.18)' }} />
+            )}
+            <View style={{ paddingLeft: i > 0 ? 14 : 0, paddingRight: i < 2 ? 14 : 0 }}>
+              <Text style={{ fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 5, color: 'rgba(255,255,255,0.6)' }}>
+                {col.label}
+              </Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>{col.value}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Divider */}
+      <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.14)', marginBottom: 18 }} />
+
+      {/* Price + Payment status */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View>
+          <Text style={{ fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4, color: 'rgba(255,255,255,0.6)' }}>
+            Est. Price
+          </Text>
+          <Text style={{ fontSize: 30, fontWeight: '800', color: '#fff', letterSpacing: -1 }}>
+            ₱{Number(booking.base_price).toLocaleString()}
+          </Text>
+        </View>
+        <View style={{
+          backgroundColor: booking.payment_status === 'paid' ? '#16a34a28' : booking.payment_status === 'refunded' ? '#7c3aed28' : 'rgba(255,255,255,0.1)',
+          borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10,
+          borderWidth: 1,
+          borderColor: booking.payment_status === 'paid' ? '#16a34a50' : booking.payment_status === 'refunded' ? '#7c3aed50' : 'rgba(255,255,255,0.2)',
+        }}>
+          <Text style={{ fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3, color: booking.payment_status === 'paid' ? '#4ade80' : booking.payment_status === 'refunded' ? '#c4b5fd' : 'rgba(255,255,255,0.6)' }}>
+            Payment
+          </Text>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: booking.payment_status === 'paid' ? '#4ade80' : booking.payment_status === 'refunded' ? '#c4b5fd' : 'rgba(255,255,255,0.85)' }}>
+            {booking.payment_status === 'paid' ? '✓ Paid'
+              : booking.payment_status === 'partial' ? 'Partially Paid'
+              : booking.payment_status === 'refunded' ? 'Refunded'
+              : 'Unpaid'}
+          </Text>
+        </View>
+      </View>
+
+      {/* Accent bottom strip */}
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, backgroundColor: accent, opacity: 0.7 }} />
+    </View>
+  )
+}
+
+// ── Status Banner ─────────────────────────────────────────────────────────────
+
+function StatusBanner({
+  icon, title, body, bg, accent, titleColor, bodyColor, live,
+}: {
+  icon:       keyof typeof Feather.glyphMap
+  title:      string
+  body:       string
+  bg:         string
+  accent:     string
+  titleColor: string
+  bodyColor:  string
+  live?:      boolean
+}) {
+  const dotAnim = useRef(new Animated.Value(0.35)).current
+
+  useEffect(() => {
+    if (!live) return
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(dotAnim, { toValue: 1, duration: 620, useNativeDriver: true }),
+      Animated.timing(dotAnim, { toValue: 0.35, duration: 620, useNativeDriver: true }),
+    ]))
+    loop.start()
+    return () => loop.stop()
+  }, [live])
+
+  return (
+    <View style={{
+      marginHorizontal: 16, marginBottom: 14, borderRadius: 20, overflow: 'hidden', marginTop: 13,
+      borderWidth: 1, borderColor: accent + '30',
+      shadowColor: accent, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 3,
+    }}>
+      <View style={{ backgroundColor: bg, padding: 18 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+          <View style={{
+            width: 48, height: 48, borderRadius: 16, backgroundColor: accent,
+            alignItems: 'center', justifyContent: 'center',
+            shadowColor: accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 4,
+          }}>
+            <Feather name={icon} size={22} color="#fff" />
+          </View>
+          <View style={{ flex: 1, paddingTop: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: titleColor, letterSpacing: -0.2 }}>
+                {title}
+              </Text>
+              {live && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Animated.View style={{
+                    width: 7, height: 7, borderRadius: 3.5,
+                    backgroundColor: accent, opacity: dotAnim,
+                  }} />
+                  <Text style={{ fontSize: 9, fontWeight: '800', color: accent, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+                    Live
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={{ fontSize: 13, color: bodyColor, lineHeight: 19 }}>{body}</Text>
+          </View>
+        </View>
+      </View>
     </View>
   )
 }

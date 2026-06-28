@@ -2,7 +2,7 @@ import { ServiceType } from './types'
 
 export const BASE_RATE: Record<ServiceType, number> = {
   general: 500,
-  premium_mattress: 800,
+  deep_cleaning: 800,
   complete: 1200,
   disinfection: 1000,
   post_construction: 1500,

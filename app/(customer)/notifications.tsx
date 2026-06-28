@@ -8,6 +8,7 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
+import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
 
 type Notification = {
@@ -48,6 +49,7 @@ function formatTime(d: string) {
 export default function CustomerNotificationsScreen() {
   const router = useRouter()
   const C = useThemeColors()
+  const { isDark } = useTheme()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
@@ -128,7 +130,9 @@ export default function CustomerNotificationsScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => { setRefreshing(true); load() }}
-              tintColor={Colors.primary}
+              tintColor={isDark ? '#ffffff' : Colors.primary}
+              colors={isDark ? ['#ffffff'] : [Colors.primary]}
+              progressBackgroundColor={isDark ? '#334155' : '#ffffff'}
             />
           }
           renderSectionHeader={({ section }) => (

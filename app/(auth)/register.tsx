@@ -105,7 +105,7 @@ export default function RegisterScreen() {
             <Feather name="mail" size={16} color={focused === 'email' ? '#db2777' : '#9ca3af'} style={s.icon} />
             <TextInput
               style={s.input}
-              placeholder="Email address"
+              placeholder="name@gmail.com"
               placeholderTextColor="#9ca3af"
               keyboardType="email-address"
               autoCapitalize="none"
@@ -122,7 +122,7 @@ export default function RegisterScreen() {
             <Feather name="phone" size={16} color={focused === 'phone' ? '#db2777' : '#9ca3af'} style={s.icon} />
             <TextInput
               style={s.input}
-              placeholder="+63 9XX XXX XXXX (optional)"
+              placeholder="+63 9XX XXX XXXX"
               placeholderTextColor="#9ca3af"
               keyboardType="phone-pad"
               value={phone}

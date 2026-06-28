@@ -6,13 +6,13 @@ export type PaymentStatus = 'unpaid' | 'partial' | 'paid' | 'refunded'
 
 export type AssignmentStatus = 'offered' | 'accepted' | 'declined' | 'completed'
 
-export type ServiceType = 'general' | 'premium_mattress' | 'complete' | 'disinfection' | 'post_construction'
+export type ServiceType = 'general' | 'deep_cleaning' | 'complete' | 'disinfection' | 'post_construction'
 
-export type SpaceType = 'residential' | 'commercial'
+export type SpaceType = 'residential' | 'commercial' | 'condo' | 'office'
 
 export const SERVICE_LABELS: Record<ServiceType, string> = {
   general: 'General Cleaning',
-  premium_mattress: 'Mattress & Upholstery',
+  deep_cleaning: 'Deep Cleaning',
   complete: 'Complete Package',
   disinfection: 'Disinfection',
   post_construction: 'Post-Construction',
@@ -54,7 +54,9 @@ export type Booking = {
   id: string
   customer_id: string
   branch_id: string
-  service_type: ServiceType
+  service_name: string | null
+  service_image: string | null
+  service_slug: string | null
   space_type: SpaceType
   service_date: string
   service_time: string
@@ -66,8 +68,11 @@ export type Booking = {
   status: BookingStatus
   payment_status: PaymentStatus
   payment_method: string
+  payment_reference: string | null
+  other_furniture: string | null
   address_unit: string | null
   address_street: string | null
+  address_barangay: string | null
   address_city: string | null
   address_province: string | null
   service_lat: number | null

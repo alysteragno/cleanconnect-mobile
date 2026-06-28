@@ -19,6 +19,11 @@ export const Colors = {
   errorBg: '#fef2f2',       // red-50
   warning: '#ca8a04',       // yellow-600
   warningBg: '#fefce8',     // yellow-50
+
+  notice: '#7c3a00',        // warm dark amber — text/icon on notice bg
+  noticeAlt: '#a35200',     // warm amber — secondary text on notice bg
+  noticeBorder: '#FFDBB8',  // peach — border and icon fill
+  noticeBg: '#FFDBB8',      // pastel peach — surface
 }
 
 export const DarkColors = {
@@ -42,4 +47,9 @@ export const DarkColors = {
   errorBg: '#450a0a',
   warning: '#fbbf24',       // amber-400
   warningBg: '#422006',
+
+  notice: '#FFDBB8',        // peach — readable as text on dark surfaces
+  noticeAlt: '#e8a96a',     // muted peach — secondary text
+  noticeBorder: '#7c3a0055',// subtle warm border
+  noticeBg: '#2a1500',      // very dark warm amber — surface
 }

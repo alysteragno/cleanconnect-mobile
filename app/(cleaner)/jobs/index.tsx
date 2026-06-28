@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  View, Text, TouchableOpacity, FlatList,
+  View, Text, TouchableOpacity, FlatList, Image,
   ScrollView, ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -8,7 +8,8 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
-import { SERVICE_LABELS, ServiceType } from '@/constants/types'
+import { useTheme } from '@/context/ThemeContext'
+import { getService } from '@/constants/services'
 import AppHeader from '@/components/AppHeader'
 
 type Assignment = {
@@ -16,34 +17,40 @@ type Assignment = {
   booking_id: string
   status: string
   bookings: {
-    service_type: ServiceType
+    service_slug: string
+    service_name: string | null
     service_date: string
     service_time: string
     property_sqm: number
     base_price: number
-    address_city: string | null
+    duration_hours: number
+    address_unit: string | null
     address_street: string | null
+    address_city: string | null
+    address_province: string | null
     status: string
+    payment_method: string
+    payment_status: string
     customer: { full_name: string } | null
   }
 }
 
+const PAYMENT_LABELS: Record<string, string> = {
+  cash:          'Cash',
+  gcash:         'GCash',
+  maya:          'Maya',
+  bank_transfer: 'Bank Transfer',
+  bank_check:    'Bank Check',
+}
+
 const FILTER_TABS = [
-  { key: 'offered', label: 'Offers' },
-  { key: 'accepted', label: 'Upcoming' },
+  { key: 'assigned', label: 'Upcoming' },
   { key: 'completed', label: 'Completed' },
 ]
 
-const STATUS_COLORS: Record<string, string> = {
-  offered: '#ca8a04',
-  accepted: Colors.primary,
-  completed: '#16a34a',
-  declined: '#6b7280',
-}
-
 function formatDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-PH', {
-    weekday: 'short', month: 'short', day: 'numeric',
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   })
 }
 function formatTime(t: string) {
@@ -54,10 +61,11 @@ function formatTime(t: string) {
 export default function CleanerJobsScreen() {
   const router = useRouter()
   const C = useThemeColors()
+  const { isDark } = useTheme()
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [activeFilter, setActiveFilter] = useState<string>('offered')
+  const [activeFilter, setActiveFilter] = useState<string>('assigned')
   const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => { loadJobs() }, [])
@@ -71,10 +79,15 @@ export default function CleanerJobsScreen() {
         .from('cleaner_assignments')
         .select(`
           id, booking_id, status,
-          bookings (service_type, service_date, service_time, property_sqm, base_price, address_city, address_street, status, customer:profiles!customer_id(full_name))
+          bookings (
+            service_slug, service_name, service_date, service_time, property_sqm,
+            base_price, duration_hours, address_unit, address_street, address_city,
+            address_province, status, payment_method, payment_status,
+            customer:profiles!customer_id(full_name)
+          )
         `)
         .eq('cleaner_id', user.id)
-        .neq('status', 'declined')
+        .in('status', ['assigned', 'completed'])
         .order('assigned_at', { ascending: false }),
       supabase
         .from('notifications')
@@ -89,24 +102,10 @@ export default function CleanerJobsScreen() {
     setRefreshing(false)
   }
 
-  async function respondToOffer(assignmentId: string, accept: boolean) {
-    await supabase
-      .from('cleaner_assignments')
-      .update({ status: accept ? 'accepted' : 'declined' })
-      .eq('id', assignmentId)
-
-    setAssignments(prev =>
-      accept
-        ? prev.map(a => a.id === assignmentId ? { ...a, status: 'accepted' } : a)
-        : prev.filter(a => a.id !== assignmentId)
-    )
-  }
-
   const filtered = useMemo(
     () => assignments.filter(a => a.status === activeFilter),
     [assignments, activeFilter]
   )
-  const offeredCount = assignments.filter(a => a.status === 'offered').length
 
   if (loading) {
     return (
@@ -124,7 +123,6 @@ export default function CleanerJobsScreen() {
         onBellPress={() => router.push('/(cleaner)/notifications')}
       />
 
-      {/* Filter tabs */}
       <View style={{ backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.border }}>
         <ScrollView
           horizontal
@@ -140,7 +138,6 @@ export default function CleanerJobsScreen() {
                 backgroundColor: activeFilter === tab.key ? Colors.primary : C.white,
                 borderWidth: 1,
                 borderColor: activeFilter === tab.key ? Colors.primary : C.border,
-                flexDirection: 'row', alignItems: 'center', gap: 4,
               }}
             >
               <Text style={{
@@ -149,19 +146,6 @@ export default function CleanerJobsScreen() {
               }}>
                 {tab.label}
               </Text>
-              {tab.key === 'offered' && offeredCount > 0 && (
-                <View style={{
-                  backgroundColor: activeFilter === 'offered' ? '#fff' : Colors.primary,
-                  borderRadius: 99, width: 18, height: 18, alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Text style={{
-                    fontSize: 10, fontWeight: '700',
-                    color: activeFilter === 'offered' ? Colors.primary : '#fff',
-                  }}>
-                    {offeredCount}
-                  </Text>
-                </View>
-              )}
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -170,9 +154,15 @@ export default function CleanerJobsScreen() {
       <FlatList
         data={filtered}
         keyExtractor={item => item.id}
-        contentContainerStyle={{ padding: 16, gap: 10 }}
+        contentContainerStyle={{ padding: 16, gap: 14 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadJobs() }} tintColor={Colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); loadJobs() }}
+            tintColor={isDark ? '#ffffff' : Colors.primary}
+            colors={[Colors.primary]}
+            progressBackgroundColor={isDark ? '#334155' : '#ffffff'}
+          />
         }
         ListEmptyComponent={
           <View style={{
@@ -181,95 +171,144 @@ export default function CleanerJobsScreen() {
           }}>
             <Feather name="briefcase" size={32} color={C.textMuted} style={{ marginBottom: 8 }} />
             <Text style={{ color: C.text, fontWeight: '600', textAlign: 'center' }}>
-              {activeFilter === 'offered' ? 'No pending offers' : activeFilter === 'accepted' ? 'No upcoming jobs' : 'No completed jobs'}
+              {activeFilter === 'assigned' ? 'No upcoming jobs' : 'No completed jobs'}
             </Text>
             <Text style={{ color: C.textMuted, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
-              {activeFilter === 'offered' ? 'New job offers will appear here.' : 'Check back later.'}
+              Check back later.
             </Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={{
-            backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
-            borderColor: C.borderLight, padding: 16,
-          }}>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => router.push(`/(cleaner)/jobs/${item.id}`)}
-            >
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.text }}>
-                    {SERVICE_LABELS[item.bookings?.service_type]}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-                    {formatDate(item.bookings?.service_date)} · {formatTime(item.bookings?.service_time)}
-                  </Text>
-                  {item.bookings?.address_city && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                      <Feather name="map-pin" size={10} color={C.textMuted} />
-                      <Text style={{ fontSize: 12, color: C.textMuted }}>{item.bookings.address_city}</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>
-                    ₱{Number(item.bookings?.base_price).toLocaleString()}
-                  </Text>
-                  <View style={{
-                    marginTop: 4, paddingHorizontal: 8, paddingVertical: 2,
-                    borderRadius: 99, backgroundColor: (STATUS_COLORS[item.status] ?? '#6b7280') + '18',
-                  }}>
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: STATUS_COLORS[item.status] ?? '#6b7280', textTransform: 'capitalize' }}>
-                      {item.status}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ fontSize: 12, color: C.textMuted }}>{item.bookings?.property_sqm} sqm</Text>
-                {item.status === 'completed' && item.bookings?.customer && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Feather name="user" size={10} color={C.textMuted} />
-                    <Text style={{ fontSize: 11, color: C.textMuted }}>{item.bookings.customer.full_name}</Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
+        renderItem={({ item }) => {
+          const svc = getService(item.bookings?.service_slug ?? '')
+          const b = item.bookings
+          const isCompleted = item.status === 'completed'
+          const isInProgress = b?.status === 'in_progress'
+          const address = [b?.address_unit, b?.address_street, b?.address_city, b?.address_province]
+            .filter(Boolean).join(', ')
 
-            {item.status === 'offered' && (
+          return (
+            <View style={{
+              backgroundColor: C.white, borderRadius: 20, borderWidth: 1,
+              borderColor: C.borderLight, overflow: 'hidden',
+            }}>
+              {/* Service image */}
+              {svc?.image ? (
+                <Image source={svc.image} style={{ width: '100%', height: 160 }} resizeMode="cover" />
+              ) : (
+                <View style={{
+                  width: '100%', height: 130,
+                  backgroundColor: svc?.placeholderBg ?? '#fce7f3',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Feather
+                    name={(svc?.placeholderIcon ?? 'home') as any}
+                    size={40}
+                    color={svc?.placeholderIconColor ?? Colors.primary}
+                    style={{ opacity: 0.55 }}
+                  />
+                </View>
+              )}
+
+              {/* Status + price row */}
               <View style={{
-                flexDirection: 'row', gap: 8, marginTop: 12,
-                paddingTop: 12, borderTopWidth: 1, borderTopColor: C.borderLight,
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4,
               }}>
-                <TouchableOpacity
-                  style={{ flex: 1, backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 10, alignItems: 'center' }}
-                  onPress={() => respondToOffer(item.id, true)}
-                >
-                  <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Accept</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={{ flex: 1, backgroundColor: C.background, borderRadius: 12, paddingVertical: 10, alignItems: 'center' }}
-                  onPress={() => respondToOffer(item.id, false)}
-                >
-                  <Text style={{ color: C.textSecondary, fontSize: 13, fontWeight: '600' }}>Decline</Text>
-                </TouchableOpacity>
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99,
+                  backgroundColor: isCompleted ? '#dcfce7' : isInProgress ? '#ede9fe' : Colors.primary + '15',
+                }}>
+                  <View style={{
+                    width: 6, height: 6, borderRadius: 3,
+                    backgroundColor: isCompleted ? '#16a34a' : isInProgress ? '#7c3aed' : Colors.primary,
+                  }} />
+                  <Text style={{
+                    fontSize: 11, fontWeight: '700',
+                    color: isCompleted ? '#16a34a' : isInProgress ? '#7c3aed' : Colors.primary,
+                  }}>
+                    {isCompleted ? 'Completed' : isInProgress ? 'In Progress' : 'Upcoming'}
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>
+                  ₱{Number(b?.base_price).toLocaleString()}
+                </Text>
               </View>
-            )}
 
-            {item.status === 'accepted' && item.bookings?.status === 'in_progress' && (
+              {/* Service name */}
+              <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, paddingHorizontal: 16, paddingTop: 6 }}>
+                {svc?.name ?? b?.service_name ?? 'Cleaning Service'}
+              </Text>
+
+              {/* Details rows */}
+              <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4, gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Feather name="calendar" size={13} color={C.textMuted} />
+                  <Text style={{ fontSize: 13, color: C.textSecondary }}>
+                    {formatDate(b?.service_date ?? '')} · {formatTime(b?.service_time ?? '')}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Feather name="home" size={13} color={C.textMuted} />
+                  <Text style={{ fontSize: 13, color: C.textSecondary }}>
+                    {b?.property_sqm} sqm · ~{b?.duration_hours}h
+                  </Text>
+                </View>
+                {address ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                    <Feather name="map-pin" size={13} color={C.textMuted} style={{ marginTop: 1 }} />
+                    <Text style={{ fontSize: 13, color: C.textSecondary, flex: 1, lineHeight: 18 }}>{address}</Text>
+                  </View>
+                ) : null}
+                {b?.customer?.full_name ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Feather name="user" size={13} color={C.textMuted} />
+                    <Text style={{ fontSize: 13, color: C.textSecondary }}>{b.customer.full_name}</Text>
+                  </View>
+                ) : null}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Feather name="credit-card" size={13} color={C.textMuted} />
+                  <Text style={{ fontSize: 13, color: C.textSecondary }}>
+                    {PAYMENT_LABELS[b?.payment_method ?? ''] ?? b?.payment_method} ·{' '}
+                    <Text style={{ fontWeight: '700', color: b?.payment_status === 'paid' ? '#16a34a' : C.textMuted }}>
+                      {b?.payment_status === 'paid' ? 'Paid' : 'Pending'}
+                    </Text>
+                  </Text>
+                </View>
+              </View>
+
+              {/* 5-star waiting for review (completed only) */}
+              {isCompleted && (
+                <View style={{
+                  marginHorizontal: 16, marginTop: 12, marginBottom: 4,
+                  backgroundColor: '#fffbeb', borderRadius: 12, borderWidth: 1,
+                  borderColor: '#b4a56bff', paddingHorizontal: 14, paddingVertical: 10,
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                }}>
+                  <View style={{ flexDirection: 'row', gap: 3 }}>
+                    {[1,2,3,4,5].map(n => (
+                      <Feather key={n} name="star" size={16} color="#fde68a" />
+                    ))}
+                  </View>
+                  <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>
+                    Waiting for customer review
+                  </Text>
+                </View>
+              )}
+
+              {/* Divider + action button */}
+              <View style={{ height: 1, backgroundColor: C.borderLight, marginTop: 12 }} />
               <TouchableOpacity
                 style={{
-                  marginTop: 10, backgroundColor: '#7c3aed', borderRadius: 12,
-                  paddingVertical: 10, alignItems: 'center',
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  paddingVertical: 14,
+                  backgroundColor: isCompleted ? C.background : isInProgress ? '#7c3aed' : Colors.primary,
                 }}
-                onPress={() => router.push(`/(cleaner)/jobs/active?assignmentId=${item.id}&bookingId=${item.booking_id}`)}
               >
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Active Job — Open</Text>
               </TouchableOpacity>
-            )}
-          </View>
-        )}
+            </View>
+          )
+        }}
       />
     </View>
   )

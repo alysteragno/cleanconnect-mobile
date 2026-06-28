@@ -8,6 +8,9 @@ export type StoredDraft = {
     space_type: string | null
     property_sqm: string
     sofa_seaters: number
+    mattress_count: number
+    aircon_units: number
+    carpet_count: number
     other_furniture: string
     furniture_images: string[]
     address_unit: string
@@ -26,6 +29,7 @@ export type StoredDraft = {
   }
   step: number
   savedAt: string
+  serviceSlug?: string
 }
 
 export async function saveDraft(draft: StoredDraft): Promise<void> {
@@ -43,4 +47,30 @@ export async function loadDraft(): Promise<StoredDraft | null> {
 
 export async function clearDraft(): Promise<void> {
   await AsyncStorage.removeItem(KEY)
+}
+
+const RECENT_KEY = '@cc/recent_booking'
+
+export type RecentBookingHint = {
+  id: string
+  status: string
+  service_type: string
+  service_date: string
+}
+
+export async function saveRecentBooking(booking: RecentBookingHint): Promise<void> {
+  await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(booking))
+}
+
+export async function loadRecentBooking(): Promise<RecentBookingHint | null> {
+  try {
+    const raw = await AsyncStorage.getItem(RECENT_KEY)
+    return raw ? (JSON.parse(raw) as RecentBookingHint) : null
+  } catch {
+    return null
+  }
+}
+
+export async function clearRecentBooking(): Promise<void> {
+  await AsyncStorage.removeItem(RECENT_KEY)
 }

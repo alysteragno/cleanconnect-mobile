@@ -1,83 +1,280 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Animated, Easing, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, RefreshControl, Image, FlatList, useWindowDimensions } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
-import { Booking, BookingStatus, ServiceType, SERVICE_LABELS, STATUS_LABELS } from '@/constants/types'
+import { useTheme } from '@/context/ThemeContext'
+import { Booking } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
-import { loadDraft, clearDraft } from '@/lib/bookingDraft'
+import { loadDraft, loadRecentBooking, clearRecentBooking } from '@/lib/bookingDraft'
+import * as Haptics from 'expo-haptics'
+import { ServiceDef, getService } from '@/constants/services'
+import { useServices } from '@/hooks/useServices'
 
-const STEP_LABELS = ['Service Details', 'Address', 'Schedule', 'Review', 'Payment']
+const AD_BANNERS = [
+  require('@/assets/adBanner/mattress_deepcleaning.webp'),
+  require('@/assets/adBanner/post_construction.webp'),
+  require('@/assets/adBanner/commercial_cleaning.webp'),
+  require('@/assets/adBanner/restaurant.webp'),
+  require('@/assets/adBanner/house.webp'),
+  require('@/assets/adBanner/office_cleaning.webp'),
+  require('@/assets/adBanner/services.webp'),
+  require('@/assets/adBanner/shopcleaning.webp'),
+]
 
-const STATUS_COLORS: Record<BookingStatus, string> = {
-  pending: Colors.warning,
-  confirmed: Colors.primary,
-  in_progress: '#7c3aed',
-  completed: Colors.success,
-  cancelled: Colors.error,
+function AdCarousel() {
+  const [idx, setIdx] = useState(0)
+  const listRef = useRef<FlatList>(null)
+  const { width } = useWindowDimensions()
+  const itemW = width - 40
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIdx(prev => {
+        const next = (prev + 1) % AD_BANNERS.length
+        listRef.current?.scrollToIndex({ index: next, animated: true })
+        return next
+      })
+    }, 10000)
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <View style={{ borderRadius: 20, overflow: 'hidden' }}>
+      <FlatList
+        ref={listRef}
+        data={AD_BANNERS}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={itemW}
+        decelerationRate="fast"
+        getItemLayout={(_, i) => ({ length: itemW, offset: itemW * i, index: i })}
+        onScrollToIndexFailed={info => {
+          setTimeout(() => {
+            listRef.current?.scrollToIndex({ index: info.index, animated: true })
+          }, 500)
+        }}
+        renderItem={({ item }) => (
+          <Image source={item} style={{ width: itemW, height: 180 }} resizeMode="cover" />
+        )}
+        keyExtractor={(_, i) => String(i)}
+        onMomentumScrollEnd={e => {
+          setIdx(Math.round(e.nativeEvent.contentOffset.x / itemW))
+        }}
+      />
+      <View style={{ position: 'absolute', bottom: 10, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+        {AD_BANNERS.map((_, i) => (
+          <View key={i} style={{
+            height: 5, width: i === idx ? 18 : 5,
+            borderRadius: 3,
+            backgroundColor: i === idx ? '#fff' : 'rgba(255,255,255,0.5)',
+          }} />
+        ))}
+      </View>
+    </View>
+  )
 }
 
-const SVC: Record<ServiceType, { icon: string; color: string; bg: string }> = {
-  general:            { icon: 'home',    color: '#0891b2', bg: '#e0f2fe' },
-  premium_mattress:   { icon: 'layers',  color: '#7c3aed', bg: '#ede9fe' },
-  complete:           { icon: 'star',    color: '#db2777', bg: '#fce7f3' },
-  disinfection:       { icon: 'shield',  color: '#16a34a', bg: '#dcfce7' },
-  post_construction:  { icon: 'tool',    color: '#ca8a04', bg: '#fef9c3' },
+function CategoryDivider({ label, icon, C }: { label: string; icon: string; C: ReturnType<typeof useThemeColors> }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 }}>
+      <View style={{ flex: 1, height: 1, backgroundColor: C.borderLight }} />
+      <View style={{
+        flexDirection: 'row', alignItems: 'center', gap: 5,
+        backgroundColor: C.background,
+        paddingHorizontal: 10, paddingVertical: 4,
+        borderRadius: 99, borderWidth: 1, borderColor: C.borderLight,
+      }}>
+        <Feather name={icon as any} size={11} color={C.textMuted} />
+        <Text style={{ fontSize: 11, fontWeight: '600', color: C.textMuted, letterSpacing: 0.4 }}>
+          {label}
+        </Text>
+      </View>
+      <View style={{ flex: 1, height: 1, backgroundColor: C.borderLight }} />
+    </View>
+  )
 }
 
-function formatDate(d: string) {
-  return new Date(d + 'T00:00:00').toLocaleDateString('en-PH', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  })
+function ServiceCard({ svc, cardWidth, onPress, C, rating }: {
+  svc: ServiceDef
+  cardWidth: number
+  onPress: () => void
+  C: ReturnType<typeof useThemeColors>
+  rating: { avg: number; count: number } | null
+}) {
+  const avg = rating?.avg ?? null
+  const filled = avg !== null ? Math.round(avg) : 0
+
+  return (
+    <TouchableOpacity
+      style={{
+        width: cardWidth,
+        backgroundColor: C.white,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: C.borderLight,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
+      }}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
+      {svc.image ? (
+        <Image source={svc.image} style={{ width: '100%', height: 120 }} resizeMode="cover" />
+      ) : (
+        <View style={{ width: '100%', height: 120, backgroundColor: svc.placeholderBg, alignItems: 'center', justifyContent: 'center' }}>
+          <Feather name={svc.placeholderIcon as any} size={34} color={svc.placeholderIconColor} />
+        </View>
+      )}
+
+      <View style={{ paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10, gap: 5 }}>
+        {/* name */}
+        <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, lineHeight: 16 }} numberOfLines={2}>
+          {svc.name}
+        </Text>
+
+        {/* time | price */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <Feather name="clock" size={10} color={C.textMuted} />
+          <Text style={{ fontSize: 10, color: C.textMuted }}>{svc.duration}</Text>
+          <Text style={{ fontSize: 10, color: C.borderLight, fontWeight: '700' }}>|</Text>
+          <Text style={{ fontSize: 10, fontWeight: '700', color: Colors.primary }}>
+            ₱{svc.startingPrice.toLocaleString()}+
+          </Text>
+        </View>
+
+        {/* stars */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+          {[1, 2, 3, 4, 5].map(i => (
+            <Text key={i} style={{ fontSize: 11, color: i <= filled ? '#f59e0b' : '#d1d5db', lineHeight: 14 }}>★</Text>
+          ))}
+          {avg !== null ? (
+            <Text style={{ fontSize: 10, color: C.textMuted, marginLeft: 2 }}>
+              {avg.toFixed(1)} ({rating!.count})
+            </Text>
+          ) : (
+            <Text style={{ fontSize: 9, color: C.textMuted, marginLeft: 2 }}>No reviews</Text>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  )
 }
 
 export default function CustomerHomeScreen() {
   const router = useRouter()
   const C = useThemeColors()
+  const { isDark } = useTheme()
+  const { width } = useWindowDimensions()
   const [name, setName] = useState('')
-  const [recent, setRecent] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
   const [draft, setDraft] = useState<{ step: number; service_type: string | null; savedAt: string } | null>(null)
+  const [activeBooking, setActiveBooking] = useState<{ id: string; status: string } | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [serviceRatings, setServiceRatings] = useState<Record<string, { avg: number; count: number }>>({})
+  const { groups: serviceGroups } = useServices()
+  const fabPulse = useRef(new Animated.Value(0)).current
+  const fabRing  = useRef(new Animated.Value(0)).current
+
+  const cardWidth = (width - 40 - 12) / 2
+
+  useEffect(() => {
+    if (!activeBooking) return
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(fabPulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(fabPulse, { toValue: 0, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    )
+    const ring = Animated.loop(
+      Animated.sequence([
+        Animated.timing(fabRing, { toValue: 1, duration: 1100, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(fabRing, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.delay(700),
+      ])
+    )
+    pulse.start()
+    ring.start()
+    return () => { pulse.stop(); ring.stop(); fabPulse.setValue(0); fabRing.setValue(0) }
+  }, [activeBooking])
 
   useEffect(() => { loadData() }, [])
 
   useFocusEffect(useCallback(() => {
     loadDraft().then(d => setDraft(d ? { step: d.step, service_type: d.form.service_type, savedAt: d.savedAt } : null))
+    loadRecentBooking().then(hint => {
+      if (hint) setActiveBooking(hint as { id: string; status: string })
+    })
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase
+        .from('bookings')
+        .select('id, status')
+        .eq('customer_id', user.id)
+        .not('status', 'in', '(completed,cancelled)')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data }) => {
+          setActiveBooking((data as { id: string; status: string } | null) ?? null)
+          clearRecentBooking()
+        })
+    })
   }, []))
 
-  function handleDiscardDraft() {
-    Alert.alert('Discard draft?', 'Your saved booking progress will be lost.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: async () => { await clearDraft(); setDraft(null) } },
-    ])
-  }
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: profile }, { data: bookings }, { count }] = await Promise.all([
+    const [{ data: profile }, { count }, { data: active }, { data: feedbackRows }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
-      supabase
-        .from('bookings')
-        .select('id, service_type, service_date, base_price, status')
-        .eq('customer_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(3),
       supabase
         .from('notifications')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('is_read', false),
+      supabase
+        .from('bookings')
+        .select('id, status')
+        .eq('customer_id', user.id)
+        .not('status', 'in', '(completed,cancelled)')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('feedback')
+        .select('rating, bookings!inner(service_slug)'),
     ])
 
+    // Aggregate average rating per service_type, resolved from service_slug
+    const byType: Record<string, { sum: number; count: number }> = {}
+    ;(feedbackRows ?? []).forEach((f: any) => {
+      const slug: string | undefined = f.bookings?.service_slug
+      const st = slug ? getService(slug)?.serviceType : undefined
+      if (!st) return
+      if (!byType[st]) byType[st] = { sum: 0, count: 0 }
+      byType[st].sum += f.rating
+      byType[st].count++
+    })
+    const ratings: Record<string, { avg: number; count: number }> = {}
+    Object.entries(byType).forEach(([k, v]) => {
+      ratings[k] = { avg: v.sum / v.count, count: v.count }
+    })
+
     setName(profile?.full_name?.split(' ')[0] ?? 'there')
-    setRecent((bookings ?? []) as unknown as Booking[])
     setUnreadCount(count ?? 0)
+    setActiveBooking((active as { id: string; status: string } | null) ?? null)
+    setServiceRatings(ratings)
     setLoading(false)
+    setRefreshing(false)
   }
 
   const s = useMemo(() => makeStyles(C), [C])
@@ -92,154 +289,97 @@ export default function CustomerHomeScreen() {
 
   return (
     <View style={s.screen}>
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 96 }}>
-        <AppHeader
-          greeting="Good day,"
-          name={name}
-          unreadCount={unreadCount}
-          onBellPress={() => router.push('/(customer)/notifications')}
-        />
+      <AppHeader
+        greeting="Good day,"
+        name={name}
+        unreadCount={unreadCount}
+        onBellPress={() => router.push('/(customer)/notifications')}
+      />
 
+      <ScrollView
+        style={{ flex: 1, backgroundColor: C.background }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 96 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); loadData() }}
+            tintColor={isDark ? '#ffffff' : Colors.primary}
+            colors={isDark ? ['#ffffff'] : [Colors.primary]}
+            progressBackgroundColor={isDark ? '#334155' : '#ffffff'}
+          />
+        }
+      >
         <View style={s.body}>
+          {/* ── Ad Banner Carousel ── */}
+          <AdCarousel />
 
-          {/* ── Hero booking card ── */}
-          {draft ? (
-            <View style={s.hero}>
-              <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
-                style={{ position: 'absolute', bottom: -20, right: -20 }} />
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <View style={[s.heroPill, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
-                  <Feather name="clock" size={10} color="#fff" />
-                  <Text style={s.heroPillText}>Draft Saved</Text>
-                </View>
-                <TouchableOpacity onPress={handleDiscardDraft} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={s.heroTitle}>Continue your{'\n'}booking.</Text>
-              <Text style={s.heroSub}>
-                Step {draft.step} of 5 — {STEP_LABELS[draft.step - 1]}
-                {draft.service_type ? ` · ${SERVICE_LABELS[draft.service_type as ServiceType]}` : ''}
-              </Text>
-
-              {/* Step progress dots */}
-              <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, marginBottom: 18 }}>
-                {[1, 2, 3, 4, 5].map(n => (
-                  <View key={n} style={{
-                    height: 4, flex: 1, borderRadius: 2,
-                    backgroundColor: n <= draft.step ? '#fff' : 'rgba(255,255,255,0.3)',
-                  }} />
-                ))}
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <TouchableOpacity
-                  onPress={() => router.push('/(customer)/bookings/new')}
-                  style={{
-                    flex: 1, backgroundColor: '#fff', borderRadius: 12,
-                    paddingVertical: 12, alignItems: 'center', flexDirection: 'row',
-                    justifyContent: 'center', gap: 6,
-                  }}
-                >
-                  <Feather name="play" size={14} color={Colors.primary} />
-                  <Text style={{ color: Colors.primary, fontWeight: '700', fontSize: 14 }}>Resume</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleDiscardDraft}
-                  style={{
-                    paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12,
-                    borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)',
-                    alignItems: 'center', justifyContent: 'center',
-                  }}
-                >
-                  <Text style={{ color: 'rgba(255,255,255,0.85)', fontWeight: '600', fontSize: 13 }}>Start new</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={s.hero}
-              onPress={() => router.push('/(customer)/bookings/new')}
-              activeOpacity={0.9}
-            >
-              <Feather name="wind" size={130} color="rgba(255,255,255,0.07)"
-                style={{ position: 'absolute', bottom: -20, right: -20 }} />
-
-              <View style={s.heroPill}>
-                <Feather name="star" size={10} color={Colors.primary} />
-                <Text style={s.heroPillText}>Maid For You Cleaning Services</Text>
-              </View>
-
-              <Text style={s.heroTitle}>Book your next{'\n'}cleaning today.</Text>
-              <Text style={s.heroSub}>Professional · Trusted · Affordable</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* ── Recent bookings ── */}
+          {/* ── Services Grid ── */}
           <View style={s.section}>
-            <View style={s.sectionHeader}>
-              <Text style={s.sectionTitle}>Recent Bookings </Text>
-              <TouchableOpacity onPress={() => router.push('/(customer)/bookings')}>
-                <Text style={s.sectionLink}>See all</Text>
-              </TouchableOpacity>
-            </View>
-
-            {recent.length === 0 ? (
-              <View style={s.empty}>
-                <View style={s.emptyIcon}>
-                  <Feather name="calendar" size={28} color={Colors.primary} />
+            <Text style={s.sectionTitle}>Our Services</Text>
+            {serviceGroups.map((group, gi) => (
+              <View key={group.category} style={{ gap: 10 }}>
+                {gi > 0 && (
+                  <CategoryDivider label={group.category} icon={group.categoryIcon} C={C} />
+                )}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  {group.items.map(svc => (
+                    <ServiceCard
+                      key={svc.slug}
+                      svc={svc}
+                      cardWidth={cardWidth}
+                      C={C}
+                      rating={serviceRatings[svc.serviceType] ?? null}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                        router.push(`/(customer)/services/${svc.slug}` as any)
+                      }}
+                    />
+                  ))}
                 </View>
-                <Text style={s.emptyTitle}>No bookings yet</Text>
-                <Text style={s.emptySub}>Your bookings will appear here once you book a cleaning.</Text>
               </View>
-            ) : (
-              <View style={s.card}>
-                {recent.map((b, i) => {
-                  const svc = SVC[b.service_type] ?? SVC.general
-                  return (
-                    <TouchableOpacity
-                      key={b.id}
-                      style={[s.bookingRow, i < recent.length - 1 && s.bookingDivider]}
-                      onPress={() => router.push(`/(customer)/bookings/${b.id}` as any)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[s.svcIcon, { backgroundColor: svc.bg }]}>
-                        <Feather name={svc.icon as any} size={16} color={svc.color} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.bookingName}>{SERVICE_LABELS[b.service_type]}</Text>
-                        <Text style={s.bookingDate}>{formatDate(b.service_date)}</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                        <View style={[s.statusPill, { backgroundColor: STATUS_COLORS[b.status] + '18' }]}>
-                          <Text style={[s.statusText, { color: STATUS_COLORS[b.status] }]}>
-                            {STATUS_LABELS[b.status]}
-                          </Text>
-                        </View>
-                        <Text style={s.bookingPrice}>₱{Number(b.base_price).toLocaleString()}</Text>
-                      </View>
-                      <Feather name="chevron-right" size={14} color={C.textMuted} style={{ marginLeft: 6 }} />
-                    </TouchableOpacity>
-                  )
-                })}
-              </View>
-            )}
+            ))}
           </View>
-
         </View>
       </ScrollView>
 
       {/* Floating Book Now / Resume button */}
-      <TouchableOpacity
-        style={s.fab}
-        onPress={() => router.push('/(customer)/bookings/new')}
-        activeOpacity={0.85}
+      <Animated.View
+        style={[
+          s.fabWrap,
+          activeBooking && {
+            transform: [{ scale: fabPulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.03, 1] }) }],
+          },
+        ]}
       >
-        <Feather name={draft ? 'play' : 'plus'} size={18} color="#fff" />
-        <Text style={s.fabText}>{draft ? 'Resume Booking' : 'Book a Cleaner'}</Text>
-      </TouchableOpacity>
+        {activeBooking && (
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute', top: 0, bottom: 0, left: 0, right: 0,
+              borderRadius: 27,
+              backgroundColor: Colors.primary,
+              opacity: fabRing.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0.3, 0.1, 0] }),
+              transform: [{ scale: fabRing.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) }],
+            }}
+          />
+        )}
+        <TouchableOpacity
+          style={s.fab}
+          onPress={() => {
+            if (activeBooking) {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+              router.push(`/(customer)/bookings/${activeBooking.id}` as any)
+            } else {
+              router.push('/(customer)/bookings/new')
+            }
+          }}
+          activeOpacity={0.85}
+        >
+          <Feather name={activeBooking ? 'eye' : draft ? 'play' : 'plus'} size={18} color="#fff" />
+          <Text style={s.fabText}>{activeBooking ? 'View Booking' : draft ? 'Resume Booking' : 'Book a Cleaner'}</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   )
 }
@@ -250,65 +390,13 @@ function makeStyles(C: ReturnType<typeof useThemeColors>) {
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.background },
     body: { padding: 20, gap: 20 },
 
-    hero: {
-      backgroundColor: Colors.primary,
-      borderRadius: 20,
-      padding: 24,
-      overflow: 'hidden',
-    },
-    heroPill: {
-      flexDirection: 'row', alignItems: 'center', gap: 5,
-      backgroundColor: 'rgba(255,255,255,0.2)',
-      alignSelf: 'flex-start',
-      paddingHorizontal: 10, paddingVertical: 4,
-      borderRadius: 99, marginBottom: 14,
-    },
-    heroPillText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-    heroTitle: { fontSize: 24, fontWeight: '800', color: '#fff', lineHeight: 32, marginBottom: 6 },
-    heroSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 20 },
-
     section: { gap: 12 },
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     sectionTitle: { fontSize: 15, fontWeight: '700', color: C.text },
-    sectionLink: { fontSize: 12, fontWeight: '600', color: Colors.primary },
 
-    card: {
-      backgroundColor: C.white, borderRadius: 16,
-      borderWidth: 1, borderColor: C.borderLight,
-      overflow: 'hidden',
+    fabWrap: {
+      position: 'absolute', bottom: 24, alignSelf: 'center', borderRadius: 27,
     },
-    bookingRow: {
-      flexDirection: 'row', alignItems: 'center', gap: 12,
-      paddingHorizontal: 16, paddingVertical: 14,
-    },
-    bookingDivider: { borderBottomWidth: 1, borderBottomColor: C.borderLight },
-    svcIcon: {
-      width: 40, height: 40, borderRadius: 12,
-      alignItems: 'center', justifyContent: 'center',
-    },
-    bookingName: { fontSize: 13, fontWeight: '600', color: C.text },
-    bookingDate: { fontSize: 11, color: C.textMuted, marginTop: 2 },
-    statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99 },
-    statusText: { fontSize: 10, fontWeight: '700' },
-    bookingPrice: { fontSize: 12, fontWeight: '700', color: C.text },
-
-    empty: {
-      backgroundColor: C.white, borderRadius: 16,
-      borderWidth: 1, borderColor: C.borderLight,
-      padding: 32, alignItems: 'center', gap: 8,
-    },
-    emptyIcon: {
-      width: 56, height: 56, borderRadius: 16,
-      backgroundColor: C.primaryLight,
-      alignItems: 'center', justifyContent: 'center',
-      marginBottom: 4,
-    },
-    emptyTitle: { fontSize: 15, fontWeight: '700', color: C.text },
-    emptySub: { fontSize: 13, color: C.textMuted, textAlign: 'center', lineHeight: 18 },
-
     fab: {
-      position: 'absolute', bottom: 24,
-      alignSelf: 'center',
       paddingHorizontal: 28, height: 54, borderRadius: 27,
       backgroundColor: Colors.primary,
       flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert,
+  View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
@@ -12,7 +12,7 @@ import AppHeader from '@/components/AppHeader'
 
 type Stats = {
   completed: number
-  accepted: number
+  assigned: number
 }
 
 const THEME_OPTIONS: Array<{ key: Theme; label: string; icon: string }> = [
@@ -23,13 +23,14 @@ const THEME_OPTIONS: Array<{ key: Theme; label: string; icon: string }> = [
 export default function CleanerProfileScreen() {
   const router = useRouter()
   const C = useThemeColors()
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, isDark } = useTheme()
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
-  const [stats, setStats] = useState<Stats>({ completed: 0, accepted: 0 })
+  const [stats, setStats] = useState<Stats>({ completed: 0, assigned: 0 })
   const [unreadCount, setUnreadCount] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => { loadProfile() }, [])
 
@@ -48,10 +49,11 @@ export default function CleanerProfileScreen() {
     setPhone(profile?.phone ?? '')
     setStats({
       completed: (assignments ?? []).filter(a => a.status === 'completed').length,
-      accepted: (assignments ?? []).filter(a => a.status === 'accepted').length,
+      assigned: (assignments ?? []).filter(a => a.status === 'assigned').length,
     })
     setUnreadCount(count ?? 0)
     setLoading(false)
+    setRefreshing(false)
   }
 
   async function signOut() {
@@ -80,7 +82,18 @@ export default function CleanerProfileScreen() {
         onBellPress={() => router.push('/(cleaner)/notifications')}
       />
 
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 20, gap: 16 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); loadProfile() }}
+            tintColor={isDark ? '#ffffff' : Colors.primary}
+            colors={isDark ? ['#ffffff'] : [Colors.primary]}
+            progressBackgroundColor={isDark ? '#334155' : '#ffffff'}
+          />
+        }
+      >
 
         {/* Avatar block */}
         <View style={{
@@ -119,7 +132,7 @@ export default function CleanerProfileScreen() {
             flex: 1, backgroundColor: C.white, borderRadius: 16, borderWidth: 1,
             borderColor: C.border, padding: 16, alignItems: 'center',
           }}>
-            <Text style={{ fontSize: 28, fontWeight: '800', color: Colors.primary }}>{stats.accepted}</Text>
+            <Text style={{ fontSize: 28, fontWeight: '800', color: Colors.primary }}>{stats.assigned}</Text>
             <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2, fontWeight: '600' }}>Upcoming</Text>
           </View>
         </View>

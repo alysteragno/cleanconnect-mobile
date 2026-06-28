@@ -54,7 +54,8 @@ export default function CustomerLayout() {
           tabBarIcon: ({ color, size }) => <Feather name="user" color={color} size={size} />,
         }}
       />
-      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="notifications" options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }} />
+      <Tabs.Screen name="services" options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }} />
     </Tabs>
   )
 }

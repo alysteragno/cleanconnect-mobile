@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
@@ -19,7 +19,7 @@ const THEME_OPTIONS: Array<{ key: Theme; label: string; icon: string }> = [
 export default function CustomerProfileScreen() {
   const router = useRouter()
   const C = useThemeColors()
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, isDark } = useTheme()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [email, setEmail] = useState('')
@@ -29,6 +29,7 @@ export default function CustomerProfileScreen() {
   const [draftName, setDraftName] = useState('')
   const [draftPhone, setDraftPhone] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => { loadProfile() }, [])
 
@@ -46,6 +47,7 @@ export default function CustomerProfileScreen() {
     setPhone(data?.phone ?? '')
     setUnreadCount(count ?? 0)
     setLoading(false)
+    setRefreshing(false)
   }
 
   function startEdit() {
@@ -101,7 +103,18 @@ export default function CustomerProfileScreen() {
         onBellPress={() => router.push('/(customer)/notifications')}
       />
 
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 20, gap: 16 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); loadProfile() }}
+            tintColor={isDark ? '#ffffff' : Colors.primary}
+            colors={isDark ? ['#ffffff'] : [Colors.primary]}
+            progressBackgroundColor={isDark ? '#334155' : '#ffffff'}
+          />
+        }
+      >
 
         {/* Avatar block */}
         <View style={{

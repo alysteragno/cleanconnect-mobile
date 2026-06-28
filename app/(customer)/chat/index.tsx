@@ -90,8 +90,6 @@ export default function ChatScreen() {
   const pendingTexts = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel> | null = null
-
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
       const user = session?.user
@@ -109,38 +107,43 @@ export default function ChatScreen() {
       setLoading(false)
 
       await markAdminMessagesRead(user.id)
-
-      channel = supabase
-        .channel(`direct-chat-${user.id}`)
-        .on('postgres_changes', {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'direct_messages',
-          filter: `customer_id=eq.${user.id}`,
-        }, async (payload) => {
-          const incoming = payload.new as Message
-
-          if (animatedIds.current.has(incoming.id)) return
-          if (incoming.sender_id === userId && pendingTexts.current.has(incoming.message)) return
-
-          if (incoming.sender_id !== user.id) {
-            await supabase
-              .from('direct_messages')
-              .update({ read_at: new Date().toISOString() })
-              .eq('id', incoming.id)
-            incoming.read_at = new Date().toISOString()
-          }
-
-          animatedIds.current.add(incoming.id)
-          setMessages(prev => [...prev, incoming])
-          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
-        })
-        .subscribe()
     }
 
     init()
-    return () => { if (channel) supabase.removeChannel(channel) }
   }, [])
+
+  useEffect(() => {
+    if (!userId) return
+
+    const channel = supabase
+      .channel(`direct-chat-${userId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'direct_messages',
+        filter: `customer_id=eq.${userId}`,
+      }, async (payload) => {
+        const incoming = payload.new as Message
+
+        if (animatedIds.current.has(incoming.id)) return
+        if (incoming.sender_id === userId && pendingTexts.current.has(incoming.message)) return
+
+        if (incoming.sender_id !== userId) {
+          await supabase
+            .from('direct_messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', incoming.id)
+          incoming.read_at = new Date().toISOString()
+        }
+
+        animatedIds.current.add(incoming.id)
+        setMessages(prev => [...prev, incoming])
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [userId])
 
   async function markAdminMessagesRead(customerId: string) {
     await supabase

@@ -3,7 +3,7 @@ import {
   Modal, View, Text, TouchableOpacity,
   ActivityIndicator, Animated, Platform,
 } from 'react-native'
-import MapView, { Region } from 'react-native-maps'
+import MapView, { Region, PROVIDER_GOOGLE, PROVIDER_DEFAULT } from 'react-native-maps'
 import * as Location from 'expo-location'
 import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
@@ -13,7 +13,7 @@ export type Coord = { latitude: number; longitude: number }
 type Props = {
   visible: boolean
   initial?: Coord | null
-  onConfirm: (coord: Coord, address: string) => void
+  onConfirm: (coord: Coord, address: string, city: string) => void
   onClose: () => void
 }
 
@@ -24,19 +24,19 @@ const MANILA: Region = {
   longitudeDelta: 0.008,
 }
 
-async function reverseGeocode(coord: Coord): Promise<string> {
+async function reverseGeocode(coord: Coord): Promise<{ label: string; city: string }> {
   try {
     const results = await Location.reverseGeocodeAsync(coord)
     if (results.length > 0) {
       const r = results[0]
       const parts = [r.name, r.street, r.district, r.city, r.region]
         .filter((s): s is string => !!s && s.trim().length > 0)
-      return parts.join(', ')
+      return { label: parts.join(', '), city: r.city ?? '' }
     }
   } catch {
     // fall through
   }
-  return `${coord.latitude.toFixed(5)}, ${coord.longitude.toFixed(5)}`
+  return { label: `${coord.latitude.toFixed(5)}, ${coord.longitude.toFixed(5)}`, city: '' }
 }
 
 export default function LocationMapPicker({ visible, initial, onConfirm, onClose }: Props) {
@@ -49,6 +49,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
     longitude: MANILA.longitude,
   })
   const [address, setAddress] = useState('')
+  const [geocodedCity, setGeocodedCity] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [locating, setLocating] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -59,7 +60,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
     const start = initial ?? { latitude: MANILA.latitude, longitude: MANILA.longitude }
     setCenter(start)
     setGeocoding(true)
-    reverseGeocode(start).then(addr => { setAddress(addr); setGeocoding(false) })
+    reverseGeocode(start).then(({ label, city }) => { setAddress(label); setGeocodedCity(city); setGeocoding(false) })
   }, [visible])
 
   function onRegionChange() {
@@ -81,7 +82,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
     ]).start()
     const coord = { latitude: region.latitude, longitude: region.longitude }
     setCenter(coord)
-    reverseGeocode(coord).then(addr => { setAddress(addr); setGeocoding(false) })
+    reverseGeocode(coord).then(({ label, city }) => { setAddress(label); setGeocodedCity(city); setGeocoding(false) })
   }
 
   async function goToMyLocation() {
@@ -114,6 +115,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
         {/* Map */}
         <MapView
           ref={mapRef}
+          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
           style={{ flex: 1 }}
           initialRegion={initialRegion}
           onRegionChange={onRegionChange}
@@ -242,7 +244,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
           </View>
 
           <TouchableOpacity
-            onPress={() => onConfirm(center, address)}
+            onPress={() => onConfirm(center, address, geocodedCity)}
             disabled={geocoding}
             style={{
               backgroundColor: geocoding ? '#e5e7eb' : Colors.primary,

@@ -8,6 +8,7 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
+import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
 
 type Complaint = {
@@ -45,6 +46,7 @@ function formatDate(d: string) {
 export default function SupportScreen() {
   const router = useRouter()
   const C = useThemeColors()
+  const { isDark } = useTheme()
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -165,7 +167,9 @@ export default function SupportScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => { setRefreshing(true); loadComplaints() }}
-            tintColor={Colors.primary}
+            tintColor={isDark ? '#ffffff' : Colors.primary}
+            colors={isDark ? ['#ffffff'] : [Colors.primary]}
+            progressBackgroundColor={isDark ? '#334155' : '#ffffff'}
           />
         }
         ListEmptyComponent={

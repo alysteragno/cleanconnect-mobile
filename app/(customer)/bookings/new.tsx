@@ -2,11 +2,11 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image,
-  Animated, Easing,
+  Animated, Easing, Modal,
 } from 'react-native'
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import * as ImagePicker from 'expo-image-picker'
-import { useRouter } from 'expo-router'
+import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import AppHeader from '@/components/AppHeader'
@@ -17,8 +17,9 @@ import { useTheme } from '@/context/ThemeContext'
 import GCashLogo from '@/assets/gcash_logo.svg'
 import MayaLogo from '@/assets/maya_logo.svg'
 import { ServiceType, SpaceType, SERVICE_LABELS } from '@/constants/types'
+import { getService } from '@/constants/services'
 import { estimatePrice } from '@/constants/pricing'
-import { saveDraft, loadDraft, clearDraft } from '@/lib/bookingDraft'
+import { saveDraft, loadDraft, clearDraft, saveRecentBooking } from '@/lib/bookingDraft'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as MediaLibrary from 'expo-media-library'
 
@@ -58,11 +59,20 @@ function CashIcon() {
   )
 }
 
+function BankCheckIcon() {
+  return (
+    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: '#1e40af', alignItems: 'center', justifyContent: 'center' }}>
+      <Feather name="file-text" size={22} color="#fff" />
+    </View>
+  )
+}
+
 const PAYMENT_ICONS: Record<string, React.ReactNode> = {
   cash: <CashIcon />,
   gcash: <WalletIcon method="gcash" />,
   maya: <WalletIcon method="maya" />,
   bank_transfer: <BankIcon />,
+  bank_check: <BankCheckIcon />,
 }
 
 // ─── Shared UI primitives ────────────────────────────────────────────────────
@@ -206,6 +216,47 @@ function BankRow({ label, value, C }: { label: string; value: string; C: ReturnT
   )
 }
 
+function CountStepper({ label, hint, value, onChange, max = 20, C }: {
+  label: string
+  hint?: string
+  value: number
+  onChange: (n: number) => void
+  max?: number
+  C: ReturnType<typeof useThemeColors>
+}) {
+  return (
+    <View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
+        <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{label}</Text>
+      </View>
+      {hint && <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 10 }}>{hint}</Text>}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <TouchableOpacity
+          onPress={() => onChange(Math.max(0, value - 1))}
+          style={{
+            width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+            borderWidth: 1.5, borderColor: value > 0 ? Colors.primary : C.border,
+            backgroundColor: value > 0 ? C.primaryBg : C.background,
+          }}
+        >
+          <Text style={{ fontSize: 22, color: value > 0 ? Colors.primary : C.textMuted, lineHeight: 26 }}>−</Text>
+        </TouchableOpacity>
+        <Text style={{ fontSize: 26, fontWeight: '800', color: C.text, minWidth: 40, textAlign: 'center' }}>{value}</Text>
+        <TouchableOpacity
+          onPress={() => onChange(Math.min(max, value + 1))}
+          style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: C.primaryBg }}
+        >
+          <Text style={{ fontSize: 22, color: Colors.primary, lineHeight: 26 }}>+</Text>
+        </TouchableOpacity>
+        {value > 0 && (
+          <Text style={{ fontSize: 13, color: C.textSecondary, flex: 1 }}>{value} selected</Text>
+        )}
+      </View>
+    </View>
+  )
+}
+
 // ─── Types & constants ───────────────────────────────────────────────────────
 
 type FormData = {
@@ -213,10 +264,14 @@ type FormData = {
   space_type: SpaceType | null
   property_sqm: string
   sofa_seaters: number
+  mattress_count: number
+  aircon_units: number
+  carpet_count: number
   other_furniture: string
   furniture_images: string[]
   address_unit: string
   address_street: string
+  address_barangay: string
   address_city: string
   address_province: string
   service_lat: number | null
@@ -231,23 +286,45 @@ type FormData = {
 }
 
 const INITIAL_FORM: FormData = {
-  service_type: null, space_type: null, property_sqm: '', sofa_seaters: 0,
+  service_type: 'general', space_type: null, property_sqm: '', sofa_seaters: 0,
+  mattress_count: 0, aircon_units: 0, carpet_count: 0,
   other_furniture: '', furniture_images: [], address_unit: '', address_street: '',
-  address_city: '', address_province: '', service_lat: null, service_lng: null,
+  address_barangay: '', address_city: '', address_province: '', service_lat: null, service_lng: null,
   service_address_label: '', service_date: null, service_time: null,
   payment_method: '', payment_reference: '', payment_proof_uri: '', special_notes: '',
 }
 
-const SERVICE_OPTIONS: ServiceType[] = ['general', 'premium_mattress', 'complete', 'disinfection', 'post_construction']
-const SPACE_OPTIONS: Array<{ key: SpaceType; label: string }> = [
-  { key: 'residential', label: 'Residential' },
-  { key: 'commercial', label: 'Commercial' },
+const SERVICE_OPTIONS: ServiceType[] = ['general', 'deep_cleaning', 'complete', 'disinfection', 'post_construction']
+
+const SERVICE_SLUG_TO_TYPE: Record<string, ServiceType> = {
+  commercial_cleaning:      'general',
+  condo_cleaning:           'general',
+  house_cleaning:           'general',
+  office_cleaning:          'general',
+  mattress_deep_cleaning:   'deep_cleaning',
+  sofa_couch_deep_cleaning: 'deep_cleaning',
+  carpet_cleaning:          'general',
+  curtain_dry_cleaning:     'general',
+  aircon_cleaning:          'general',
+  aircon_freon_charging:    'general',
+  aircon_repair:            'general',
+  grease_trap_cleaning:     'general',
+  grease_trap_installation: 'general',
+}
+
+
+const SPACE_OPTIONS: Array<{ key: SpaceType; label: string; icon: string; desc: string }> = [
+  { key: 'residential', label: 'Residential', icon: 'home',     desc: 'House, townhouse' },
+  { key: 'condo',       label: 'Condo',       icon: 'square',   desc: 'Condo or studio unit' },
+  { key: 'commercial',  label: 'Commercial',  icon: 'package',  desc: 'Shop, restaurant' },
+  { key: 'office',      label: 'Office',      icon: 'briefcase',desc: 'Office or workspace' },
 ]
 const PAYMENT_OPTIONS = [
   { key: 'cash',          label: 'Cash',          desc: 'Pay on the day of service' },
   { key: 'gcash',         label: 'GCash',         desc: 'Pay via GCash before service' },
   { key: 'maya',          label: 'Maya',          desc: 'Pay via Maya before service' },
   { key: 'bank_transfer', label: 'Bank Transfer', desc: 'Transfer to our bank account' },
+  { key: 'bank_check',    label: 'Bank Check',    desc: 'Deliver a check before service' },
 ]
 
 const AI_STEPS = [
@@ -255,6 +332,76 @@ const AI_STEPS = [
   { label: 'Availability Analysis',    s: 2 },
   { label: 'Geo-based Cleaner Matching', s: 3 },
 ]
+
+const METRO_MANILA_CITIES = [
+  'Caloocan', 'Las Piñas', 'Makati', 'Malabon', 'Mandaluyong',
+  'Manila', 'Marikina', 'Muntinlupa', 'Navotas', 'Parañaque',
+  'Pasay', 'Pasig', 'Pateros', 'Quezon City', 'San Juan',
+  'Taguig', 'Valenzuela',
+]
+
+function normalizeForMatch(s: string) {
+  return s.toLowerCase().replace(/[ñ]/g, 'n').replace(/[áàä]/g, 'a')
+}
+
+function matchMetroManilaCity(geocodedCity: string): string | null {
+  if (!geocodedCity) return null
+  const norm = normalizeForMatch(geocodedCity)
+  return METRO_MANILA_CITIES.find(c =>
+    normalizeForMatch(c) === norm ||
+    norm.includes(normalizeForMatch(c))
+  ) ?? null
+}
+
+function CityPickerModal({ visible, onSelect, onClose, C }: {
+  visible: boolean
+  onSelect: (city: string) => void
+  onClose: () => void
+  C: ReturnType<typeof useThemeColors>
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <TouchableOpacity
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }}
+        activeOpacity={1}
+        onPress={onClose}
+      />
+      <View style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0,
+        backgroundColor: C.white,
+        borderTopLeftRadius: 24, borderTopRightRadius: 24,
+        paddingTop: 12,
+        paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+        maxHeight: '70%',
+      }}>
+        <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 }} />
+        <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, paddingHorizontal: 20, marginBottom: 4 }}>
+          Select City
+        </Text>
+        <Text style={{ fontSize: 12, color: C.textSecondary, paddingHorizontal: 20, marginBottom: 12 }}>
+          Metro Manila cities only
+        </Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {METRO_MANILA_CITIES.map((city, i) => (
+            <TouchableOpacity
+              key={city}
+              onPress={() => { onSelect(city); onClose() }}
+              style={{
+                paddingVertical: 14, paddingHorizontal: 20,
+                borderBottomWidth: i < METRO_MANILA_CITIES.length - 1 ? 1 : 0,
+                borderBottomColor: C.borderLight,
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+              }}
+            >
+              <Text style={{ fontSize: 15, color: C.text, fontWeight: '500' }}>{city}</Text>
+              <Feather name="chevron-right" size={14} color={C.textMuted} />
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
+  )
+}
 
 function formatDisplayDate(d: Date) {
   return d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
@@ -272,47 +419,131 @@ function toTimeString(d: Date) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function isWithinServiceHours(time: Date): boolean {
+  const h = time.getHours()
+  const m = time.getMinutes()
+  if (h < 8 || h > 17) return false
+  if (h === 17 && m > 0) return false
+  return true
+}
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function NewBookingScreen() {
   const router = useRouter()
+  const { service: serviceSlug } = useLocalSearchParams<{ service?: string }>()
   const C = useThemeColors()
   const { isDark } = useTheme()
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
+  const [currentServiceSlug, setCurrentServiceSlug] = useState<string | undefined>(serviceSlug)
   const [showMap, setShowMap] = useState(false)
+  const [showCityPicker, setShowCityPicker] = useState(false)
   const [step2Visited, setStep2Visited] = useState(false)
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
+  const [termsExpanded, setTermsExpanded] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showTimePicker, setShowTimePicker] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [processing, setProcessing] = useState(false)
   const [aiStep, setAiStep] = useState(0)
-  const [draftRestored, setDraftRestored] = useState(false)
+
   const [paymentSettings, setPaymentSettings] = useState<Record<string, string>>({})
   const [qrUrls, setQrUrls] = useState<Record<string, string>>({})
   const draftLoaded = useRef(false)
+  const draftCleared = useRef(false)
+  const [checkingActive, setCheckingActive] = useState(true)
 
   useEffect(() => {
-    loadDraft().then(draft => {
-      if (draft) {
-        setForm({
-          ...draft.form,
-          service_type: draft.form.service_type as ServiceType | null,
-          space_type: draft.form.space_type as SpaceType | null,
-          service_date: draft.form.service_date ? new Date(draft.form.service_date) : null,
-          service_time: draft.form.service_time ? new Date(draft.form.service_time) : null,
-        })
-        setStep(draft.step)
-        setDraftRestored(true)
-        setTimeout(() => setDraftRestored(false), 3000)
+    async function init() {
+      // ── Step 1: check for an active booking first ────────────────────────────
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setCheckingActive(false); return }
+
+      const { data: activeData } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('customer_id', user.id)
+        .not('status', 'in', '(completed,cancelled)')
+        .limit(1)
+        .maybeSingle()
+
+      if (activeData?.id) {
+        Alert.alert(
+          'Active Booking Exists',
+          'You already have a pending or active booking. Please complete or cancel it before making a new one.',
+          [{ text: 'View Booking', onPress: () => router.replace(`/(customer)/bookings/${activeData.id}` as any) }],
+          { cancelable: false },
+        )
+        return // checkingActive stays true; component will be replaced
       }
+
+      // ── Step 2: no active booking — check for a saved draft ─────────────────
+      const draft = await loadDraft()
+      const shouldRestore = draft && (!serviceSlug || serviceSlug === draft.serviceSlug)
+
+      if (shouldRestore) {
+        // Ask the user instead of silently restoring
+        const savedOn = new Date(draft!.savedAt).toLocaleDateString('en-PH', {
+          month: 'short', day: 'numeric', year: 'numeric',
+        })
+        Alert.alert(
+          'Resume Previous Booking?',
+          `You have a saved draft from ${savedOn}. Continue where you left off, or start fresh?`,
+          [
+            {
+              text: 'Start Fresh',
+              style: 'destructive',
+              onPress: async () => {
+                draftCleared.current = true
+                await clearDraft()
+                if (serviceSlug && SERVICE_SLUG_TO_TYPE[serviceSlug]) {
+                  setForm(f => ({ ...f, service_type: SERVICE_SLUG_TO_TYPE[serviceSlug!] }))
+                }
+                draftLoaded.current = true
+                setCheckingActive(false)
+              },
+            },
+            {
+              text: 'Resume Draft',
+              onPress: () => {
+                setForm({
+                  ...INITIAL_FORM,
+                  ...draft!.form,
+                  service_type: draft!.form.service_type as ServiceType | null,
+                  space_type: draft!.form.space_type as SpaceType | null,
+                  service_date: draft!.form.service_date ? new Date(draft!.form.service_date) : null,
+                  service_time: draft!.form.service_time ? new Date(draft!.form.service_time) : null,
+                })
+                setStep(draft!.step)
+                if (draft!.serviceSlug) setCurrentServiceSlug(draft!.serviceSlug)
+                draftLoaded.current = true
+                setCheckingActive(false)
+              },
+            },
+          ],
+          { cancelable: false },
+        )
+        return // wait for user choice before showing form
+      }
+
+      // No draft to restore (or different service — clear stale draft)
+      if (draft) await clearDraft()
+
       draftLoaded.current = true
-    })
+
+      if (serviceSlug && SERVICE_SLUG_TO_TYPE[serviceSlug]) {
+        setForm(f => ({ ...f, service_type: SERVICE_SLUG_TO_TYPE[serviceSlug!] }))
+      }
+
+      setCheckingActive(false)
+    }
+    init()
   }, [])
 
   useEffect(() => {
-    if (!draftLoaded.current) return
+    if (!draftLoaded.current || draftCleared.current) return
     saveDraft({
       form: {
         ...form,
@@ -321,8 +552,9 @@ export default function NewBookingScreen() {
       },
       step,
       savedAt: new Date().toISOString(),
+      serviceSlug: currentServiceSlug,
     })
-  }, [form, step])
+  }, [form, step, currentServiceSlug])
 
   useEffect(() => {
     if (step === 2 && !step2Visited) {
@@ -335,7 +567,7 @@ export default function NewBookingScreen() {
     supabase
       .from('settings')
       .select('key, value')
-      .in('key', ['gcash_number', 'maya_number', 'bank_name', 'bank_account_number', 'bank_account_name'])
+      .in('key', ['gcash_number', 'maya_number', 'bank_name', 'bank_account_number', 'bank_account_name', 'check_payable_to', 'check_delivery_address'])
       .then(({ data }) => {
         const map: Record<string, string> = {}
         ;(data ?? []).forEach((s: { key: string; value: string }) => { map[s.key] = s.value })
@@ -377,7 +609,6 @@ export default function NewBookingScreen() {
 
   function validateStep(): { title: string; message: string } | null {
     if (step === 1) {
-      if (!form.service_type) return { title: 'Service required', message: 'Please select a service type.' }
       if (!form.space_type) return { title: 'Space required', message: 'Please select a space type.' }
       if (!form.property_sqm || isNaN(Number(form.property_sqm)) || Number(form.property_sqm) <= 0)
         return { title: 'Invalid size', message: 'Please enter a valid property size in sqm.' }
@@ -386,17 +617,22 @@ export default function NewBookingScreen() {
     }
     if (step === 2) {
       if (!form.address_street.trim()) return { title: 'Address incomplete', message: 'Please enter a street address.' }
-      if (!form.address_city.trim()) return { title: 'Address incomplete', message: 'Please enter a city.' }
-      if (!form.address_province.trim()) return { title: 'Address incomplete', message: 'Please enter a province.' }
+      if (!form.address_barangay.trim()) return { title: 'Address incomplete', message: 'Please enter a barangay.' }
+      if (!form.address_city.trim()) return { title: 'Address incomplete', message: 'Please select a city.' }
       if (!form.service_lat) return { title: 'Location required', message: 'Please pin your service location on the map.' }
     }
     if (step === 3) {
       if (!form.service_date) return { title: 'Date required', message: 'Please select a service date.' }
       if (!form.service_time) return { title: 'Time required', message: 'Please select a service time.' }
+      if (!isWithinServiceHours(form.service_time))
+        return { title: 'Outside service hours', message: 'Service is available from 8:00 AM to 5:00 PM only. Please choose a time within that window.' }
       const combined = new Date(form.service_date)
       combined.setHours(form.service_time.getHours(), form.service_time.getMinutes(), 0, 0)
       if (combined.getTime() - Date.now() < 24 * 60 * 60 * 1000)
         return { title: 'Too soon', message: 'Bookings must be made at least 24 hours in advance. Please choose a later date or time.' }
+    }
+    if (step === 4) {
+      if (!agreedToTerms) return { title: 'Agreement required', message: 'Please read and agree to the Booking Terms & Conditions before processing your booking.' }
     }
     if (step === 5) {
       if (!form.payment_method) return { title: 'Payment required', message: 'Please select a payment method to continue.' }
@@ -435,8 +671,22 @@ export default function NewBookingScreen() {
     setStep(s => s + 1)
   }
 
+  function handleCancel() {
+    Alert.alert(
+      'Cancel Booking',
+      'Are you sure you want to cancel? Your progress will be lost.',
+      [
+        { text: 'Keep Editing', style: 'cancel' },
+        {
+          text: 'Cancel Booking', style: 'destructive',
+          onPress: async () => { draftCleared.current = true; await clearDraft(); router.back() },
+        },
+      ],
+    )
+  }
+
   function handleBack() {
-    if (step === 1) { router.back(); return }
+    if (step === 1) { handleCancel(); return }
     setStep(s => s - 1)
   }
 
@@ -446,39 +696,87 @@ export default function NewBookingScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setError('Not authenticated.'); setSubmitting(false); return }
 
-    async function uploadImage(uri: string, path: string) {
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg'
-      const fullPath = `${user!.id}/${path}.${ext}`
-      const blob = await (await fetch(uri)).blob()
-      const { error } = await supabase.storage.from('booking-images').upload(fullPath, blob, { contentType: `image/${ext}`, upsert: false })
-      if (error) return null
-      return supabase.storage.from('booking-images').getPublicUrl(fullPath).data.publicUrl
+    const { data: existingActive } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('customer_id', user.id)
+      .not('status', 'in', '(completed,cancelled)')
+      .limit(1)
+      .maybeSingle()
+    if (existingActive?.id) {
+      setError('You already have an active booking. Please complete or cancel it before submitting a new one.')
+      setSubmitting(false)
+      return
+    }
+
+    async function uploadToStorage(bucket: string, uri: string, filename: string): Promise<string | null> {
+      // Strip query params before reading extension (iOS URIs can have ?type=... suffixes)
+      const cleanUri = uri.split('?')[0]
+      const ext = cleanUri.split('.').pop()?.toLowerCase() ?? 'jpg'
+      const mime = `image/${ext === 'jpg' ? 'jpeg' : ext}`
+      const fullPath = `${user!.id}/${filename}.${ext}`
+
+      // fetch().blob() is unreliable for file:// and content:// URIs in React Native.
+      // Read as base64 via FileSystem then decode to bytes before uploading.
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      })
+      const binaryStr = atob(base64)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
+
+      const { error } = await supabase.storage
+        .from(bucket)
+        .upload(fullPath, bytes, { contentType: mime, upsert: false })
+      if (error) {
+        console.error(`[upload] ${bucket}/${fullPath}:`, error.message)
+        return null
+      }
+      return supabase.storage.from(bucket).getPublicUrl(fullPath).data.publicUrl
     }
 
     const uploadedUrls: string[] = []
     for (const uri of form.furniture_images) {
-      try {
-        const url = await uploadImage(uri, `${Date.now()}-${Math.random().toString(36).slice(2)}`)
-        if (url) uploadedUrls.push(url)
-      } catch { /* skip */ }
+      const url = await uploadToStorage(
+        'furniture-photos',
+        uri,
+        `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      )
+      if (url) uploadedUrls.push(url)
     }
 
     let payment_proof_url: string | null = null
     if (form.payment_proof_uri) {
-      try { payment_proof_url = await uploadImage(form.payment_proof_uri, `proof-${Date.now()}`) } catch { /* continue */ }
+      payment_proof_url = await uploadToStorage(
+        'payment-receipts',
+        form.payment_proof_uri,
+        `proof-${Date.now()}`,
+      )
     }
 
     const sqm = parseFloat(form.property_sqm)
+
+    const serviceDetails: string[] = []
+    if (currentServiceSlug === 'mattress_deep_cleaning' && form.mattress_count > 0)
+      serviceDetails.push(`${form.mattress_count} mattress${form.mattress_count !== 1 ? 'es' : ''}`)
+    if ((currentServiceSlug === 'aircon_cleaning' || currentServiceSlug === 'aircon_freon_charging' || currentServiceSlug === 'aircon_repair') && form.aircon_units > 0)
+      serviceDetails.push(`${form.aircon_units} aircon unit${form.aircon_units !== 1 ? 's' : ''}`)
+    if (currentServiceSlug === 'carpet_cleaning' && form.carpet_count > 0)
+      serviceDetails.push(`${form.carpet_count} carpet${form.carpet_count !== 1 ? 's' : ''}`)
+    const combinedFurniture = [...serviceDetails, form.other_furniture.trim()].filter(Boolean).join(', ')
+
     const { data, error: insertError } = await supabase.from('bookings').insert({
       customer_id: user.id,
-      service_type: form.service_type,
+      service_name: getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type ?? 'general'],
+      service_slug: currentServiceSlug ?? null,
       space_type: form.space_type,
       property_sqm: sqm,
-      sofa_seaters: form.sofa_seaters > 0 ? form.sofa_seaters : null,
-      other_furniture: form.other_furniture.trim() || null,
+      sofa_seaters: currentServiceSlug === 'sofa_couch_deep_cleaning' && form.sofa_seaters > 0 ? form.sofa_seaters : null,
+      other_furniture: combinedFurniture || null,
       furniture_images: uploadedUrls.length > 0 ? uploadedUrls : null,
       address_unit: form.address_unit || null,
       address_street: form.address_street,
+      address_barangay: form.address_barangay || null,
       address_city: form.address_city,
       address_province: form.address_province,
       service_lat: form.service_lat,
@@ -498,8 +796,23 @@ export default function NewBookingScreen() {
 
     setSubmitting(false)
     if (insertError) { setError(insertError.message); return }
+    draftCleared.current = true
     await clearDraft()
+    await saveRecentBooking({
+      id: data.id,
+      status: 'pending',
+      service_type: form.service_type ?? 'general',
+      service_date: toDateString(form.service_date!),
+    })
     router.replace(`/(customer)/bookings/${data.id}`)
+  }
+
+  if (checkingActive) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    )
   }
 
   const stepLabels = ['Service', 'Address', 'Schedule', 'Review', 'Payment', 'Confirm']
@@ -541,17 +854,32 @@ export default function NewBookingScreen() {
         onPress={handleBack}
         style={{ flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center' }}
       >
-        <Text style={{ color: C.textSecondary, fontWeight: '600' }}>{step === 1 ? 'Cancel' : 'Back'}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={step === 6 ? handleSubmit : handleNext}
-        disabled={submitting}
-        style={{ flex: 2, paddingVertical: 14, borderRadius: 12, backgroundColor: Colors.primary, alignItems: 'center', opacity: submitting ? 0.7 : 1 }}
-      >
-        <Text style={{ color: '#fff', fontWeight: '700' }}>
-          {step === 4 ? 'Process Booking →' : step === 6 ? 'Confirm Booking' : 'Next →'}
+        <Text style={{ color: step === 1 ? '#dc2626' : C.textSecondary, fontWeight: '600' }}>
+          {step === 1 ? 'Cancel Booking' : 'Back'}
         </Text>
       </TouchableOpacity>
+      {(() => {
+        const blocked = step === 4 && !agreedToTerms
+        return (
+          <TouchableOpacity
+            onPress={step === 6 ? handleSubmit : handleNext}
+            disabled={submitting || blocked}
+            style={{
+              flex: 2, paddingVertical: 14, borderRadius: 12, alignItems: 'center',
+              backgroundColor: blocked ? C.borderLight : Colors.primary,
+              opacity: submitting ? 0.7 : 1,
+            }}
+          >
+            <Text style={{ fontWeight: '700', color: blocked ? C.textMuted : '#fff' }}>
+              {blocked
+                ? 'Read Terms to Continue'
+                : step === 4 ? 'Process Booking →'
+                : step === 6 ? 'Confirm Booking'
+                : 'Next →'}
+            </Text>
+          </TouchableOpacity>
+        )
+      })()}
     </View>
   )
 
@@ -612,119 +940,201 @@ export default function NewBookingScreen() {
 
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }} showsVerticalScrollIndicator={false}>
 
-        {draftRestored && (
-          <View style={{
-            flexDirection: 'row', alignItems: 'center', gap: 8,
-            backgroundColor: '#f0fdf4', borderRadius: 10, padding: 12,
-            borderWidth: 1, borderColor: '#bbf7d0', marginBottom: 12,
-          }}>
-            <Feather name="refresh-cw" size={14} color="#16a34a" />
-            <Text style={{ flex: 1, fontSize: 13, color: '#15803d', fontWeight: '600' }}>
-              Draft restored — continuing from Step {step} of 5
-            </Text>
-            <TouchableOpacity onPress={() => setDraftRestored(false)}>
-              <Feather name="x" size={14} color="#16a34a" />
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* ── Step 1: Service & Space ── */}
         {step === 1 && (
           <View style={{ gap: 20 }}>
+            {/* Service info banner — persisted via draft so it survives navigation */}
+            {currentServiceSlug && (() => {
+              const svcDef = getService(currentServiceSlug)
+              if (!svcDef) return null
+              return (
+                <View style={{
+                  borderRadius: 20, overflow: 'hidden',
+                  borderWidth: 1, borderColor: C.border,
+                  backgroundColor: C.white,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 3 },
+                  shadowOpacity: isDark ? 0 : 0.07,
+                  shadowRadius: 10,
+                  elevation: 3,
+                }}>
+                  {svcDef.image ? (
+                    <View>
+                      <Image
+                        source={svcDef.image}
+                        style={{ width: '100%', height: 170 }}
+                        resizeMode="cover"
+                      />
+                      <View style={{
+                        position: 'absolute', top: 12, left: 12,
+                        backgroundColor: svcDef.accent + 'DD',
+                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
+                      }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
+                          {svcDef.category.toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ width: '100%', height: 110, backgroundColor: svcDef.placeholderBg, alignItems: 'center', justifyContent: 'center' }}>
+                      <Feather name={svcDef.placeholderIcon as any} size={44} color={svcDef.placeholderIconColor} style={{ opacity: 0.35 }} />
+                      <View style={{
+                        position: 'absolute', top: 12, left: 12,
+                        backgroundColor: svcDef.accent + 'DD',
+                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
+                      }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
+                          {svcDef.category.toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                  <View style={{ padding: 16, gap: 6 }}>
+                    <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.3 }}>{svcDef.name}</Text>
+                    <Text style={{ fontSize: 12, color: C.textSecondary, lineHeight: 18 }}>{svcDef.desc}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 6, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.borderLight }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                        <Feather name="clock" size={12} color={C.textMuted} />
+                        <Text style={{ fontSize: 12, color: C.textMuted, fontWeight: '500' }}>{svcDef.duration}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                        <Feather name="tag" size={12} color={Colors.primary} />
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: Colors.primary }}>
+                          From ₱{svcDef.startingPrice.toLocaleString()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f0fdf4', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+                          <Feather name="check-circle" size={11} color="#16a34a" />
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: '#16a34a' }}>Selected</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              )
+            })()}
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10 }}>Service Type</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Space Type</Text>
+              </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                {SERVICE_OPTIONS.map(s => (
-                  <TouchableOpacity
-                    key={s} onPress={() => update('service_type', s)}
-                    style={{
-                      width: '47%', padding: 14, borderRadius: 12, borderWidth: 1.5,
-                      borderColor: form.service_type === s ? Colors.primary : C.border,
-                      backgroundColor: form.service_type === s ? C.primaryBg : C.white,
-                    }}
-                  >
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: form.service_type === s ? Colors.primary : C.text }}>
-                      {SERVICE_LABELS[s]}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {SPACE_OPTIONS.map(o => {
+                  const selected = form.space_type === o.key
+                  return (
+                    <TouchableOpacity
+                      key={o.key} onPress={() => update('space_type', o.key)}
+                      style={{
+                        width: '47%', padding: 14, borderRadius: 12, borderWidth: 1.5,
+                        borderColor: selected ? Colors.primary : C.border,
+                        backgroundColor: selected ? C.primaryBg : C.white,
+                        flexDirection: 'row', alignItems: 'center', gap: 10,
+                      }}
+                    >
+                      <View style={{
+                        width: 34, height: 34, borderRadius: 10,
+                        backgroundColor: selected ? Colors.primary : C.background,
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Feather name={o.icon as any} size={16} color={selected ? '#fff' : C.textMuted} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: selected ? Colors.primary : C.text }}>
+                          {o.label}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: selected ? Colors.primary : C.textMuted, marginTop: 1 }} numberOfLines={1}>
+                          {o.desc}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )
+                })}
               </View>
             </View>
 
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10 }}>Space Type</Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                {SPACE_OPTIONS.map(o => (
-                  <TouchableOpacity
-                    key={o.key} onPress={() => update('space_type', o.key)}
-                    style={{
-                      flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5,
-                      borderColor: form.space_type === o.key ? Colors.primary : C.border,
-                      backgroundColor: form.space_type === o.key ? C.primaryBg : C.white,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: form.space_type === o.key ? Colors.primary : C.text }}>
-                      {o.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Property Size (sqm)</Text>
               </View>
-            </View>
-
-            <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 8 }}>Property Size (sqm)</Text>
               <TextInput
                 value={form.property_sqm} onChangeText={t => update('property_sqm', t)}
                 keyboardType="numeric" placeholder="e.g. 60" placeholderTextColor={C.textMuted}
-                style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.text }}
+                style={{ backgroundColor: C.white, borderWidth: 1.5, borderColor: form.property_sqm ? Colors.primary : C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.text }}
               />
+              {form.property_sqm && !isNaN(Number(form.property_sqm)) && Number(form.property_sqm) > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: C.primaryBg, borderRadius: 10 }}>
+                  <Feather name="tag" size={13} color={Colors.primary} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: Colors.primary }}>
+                    Est. ₱{estimatePrice(form.service_type ?? 'general', parseFloat(form.property_sqm)).toLocaleString()}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: C.textSecondary }}> · subject to admin confirmation</Text>
+                </View>
+              )}
             </View>
 
+            {currentServiceSlug === 'sofa_couch_deep_cleaning' && (
+              <CountStepper
+                label="Number of Sofa Seaters"
+                hint="Include all sofas, sectionals, and upholstered chairs to be cleaned."
+                value={form.sofa_seaters}
+                onChange={n => update('sofa_seaters', n)}
+                C={C}
+              />
+            )}
+
+            {currentServiceSlug === 'mattress_deep_cleaning' && (
+              <CountStepper
+                label="Number of Mattresses"
+                hint="Count each mattress that needs deep cleaning (single, double, queen, king)."
+                value={form.mattress_count}
+                onChange={n => update('mattress_count', n)}
+                C={C}
+              />
+            )}
+
+            {(currentServiceSlug === 'aircon_cleaning' || currentServiceSlug === 'aircon_freon_charging' || currentServiceSlug === 'aircon_repair') && (
+              <CountStepper
+                label="Number of Aircon Units"
+                hint="Count each aircon unit that needs service."
+                value={form.aircon_units}
+                onChange={n => update('aircon_units', n)}
+                max={30}
+                C={C}
+              />
+            )}
+
+            {currentServiceSlug === 'carpet_cleaning' && (
+              <CountStepper
+                label="Number of Carpets"
+                hint="Count each carpet or rug that needs cleaning."
+                value={form.carpet_count}
+                onChange={n => update('carpet_count', n)}
+                C={C}
+              />
+            )}
+
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 8 }}>Number of Sofa Seaters</Text>
-              <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 10 }}>
-                Include all sofas, sectionals, and upholstered chairs to be cleaned.
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                <TouchableOpacity
-                  onPress={() => update('sofa_seaters', Math.max(0, form.sofa_seaters - 1))}
-                  style={{
-                    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-                    borderWidth: 1.5, borderColor: form.sofa_seaters > 0 ? Colors.primary : C.border,
-                    backgroundColor: form.sofa_seaters > 0 ? C.primaryBg : C.background,
-                  }}
-                >
-                  <Text style={{ fontSize: 22, color: form.sofa_seaters > 0 ? Colors.primary : C.textMuted, lineHeight: 26 }}>−</Text>
-                </TouchableOpacity>
-                <Text style={{ fontSize: 26, fontWeight: '800', color: C.text, minWidth: 40, textAlign: 'center' }}>{form.sofa_seaters}</Text>
-                <TouchableOpacity
-                  onPress={() => update('sofa_seaters', Math.min(20, form.sofa_seaters + 1))}
-                  style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: C.primaryBg }}
-                >
-                  <Text style={{ fontSize: 22, color: Colors.primary, lineHeight: 26 }}>+</Text>
-                </TouchableOpacity>
-                {form.sofa_seaters > 0 && (
-                  <Text style={{ fontSize: 13, color: C.textSecondary }}>{form.sofa_seaters} seater{form.sofa_seaters !== 1 ? 's' : ''}</Text>
-                )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Additional Details</Text>
               </View>
-            </View>
-
-            <View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>Other Furniture</Text>
               <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 8 }}>
-                List any other furniture that needs cleaning (e.g. 2 beds, 4 dining chairs, 1 office chair).
+                {getAdditionalDetailsHint(currentServiceSlug)}
               </Text>
               <TextInput
                 value={form.other_furniture} onChangeText={t => update('other_furniture', t)}
-                placeholder="e.g. 2 beds, 4 dining chairs, 1 curtain set" placeholderTextColor={C.textMuted}
+                placeholder={getAdditionalDetailsPlaceholder(currentServiceSlug)} placeholderTextColor={C.textMuted}
                 multiline numberOfLines={3} textAlignVertical="top"
                 style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: C.text, minHeight: 72 }}
               />
             </View>
 
             <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Furniture / Area Photos</Text>
                 <RequiredBadge C={C} />
               </View>
@@ -771,22 +1181,62 @@ export default function NewBookingScreen() {
           <View style={{ gap: 16 }}>
             <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Service Address</Text>
 
-            {[
-              { key: 'address_unit'     as const, label: 'Unit / Floor', placeholder: 'e.g. Unit 3B' },
-              { key: 'address_street'   as const, label: 'Street *',     placeholder: 'e.g. 123 Rizal Ave' },
-              { key: 'address_city'     as const, label: 'City *',       placeholder: 'e.g. Makati' },
-              { key: 'address_province' as const, label: 'Province *',   placeholder: 'e.g. Metro Manila' },
-            ].map(field => (
-              <View key={field.key}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 6 }}>{field.label}</Text>
-                <TextInput
-                  value={form[field.key] as string} onChangeText={t => update(field.key, t)}
-                  placeholder={field.placeholder} placeholderTextColor={C.textMuted}
-                  style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.text }}
-                />
-              </View>
-            ))}
+            {/* Unit / Floor */}
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 6 }}>Unit / Floor</Text>
+              <TextInput
+                value={form.address_unit} onChangeText={t => update('address_unit', t)}
+                placeholder="e.g. Unit 3B" placeholderTextColor={C.textMuted}
+                style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.text }}
+              />
+            </View>
 
+            {/* Street */}
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 6 }}>Street *</Text>
+              <TextInput
+                value={form.address_street} onChangeText={t => update('address_street', t)}
+                placeholder="e.g. 123 Rizal Ave" placeholderTextColor={C.textMuted}
+                style={{ backgroundColor: C.white, borderWidth: 1, borderColor: form.address_street ? Colors.primary : C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.text }}
+              />
+            </View>
+
+            {/* Barangay */}
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 6 }}>Barangay *</Text>
+              <TextInput
+                value={form.address_barangay} onChangeText={t => update('address_barangay', t)}
+                placeholder="e.g. Brgy. San Antonio" placeholderTextColor={C.textMuted}
+                style={{ backgroundColor: C.white, borderWidth: 1, borderColor: form.address_barangay ? Colors.primary : C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.text }}
+              />
+            </View>
+
+            {/* City — Metro Manila dropdown */}
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 6 }}>City * <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '400' }}>(Metro Manila)</Text></Text>
+              <TouchableOpacity
+                onPress={() => setShowCityPicker(true)}
+                style={{
+                  backgroundColor: C.white, borderWidth: 1,
+                  borderColor: form.address_city ? Colors.primary : C.border,
+                  borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
+                  flexDirection: 'row', alignItems: 'center',
+                }}
+              >
+                <Text style={{ flex: 1, fontSize: 15, color: form.address_city ? C.text : C.textMuted }}>
+                  {form.address_city || 'Select city'}
+                </Text>
+                <Feather name="chevron-down" size={16} color={form.address_city ? Colors.primary : C.textMuted} />
+              </TouchableOpacity>
+              {form.address_city ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                  <Feather name="map" size={11} color={C.textMuted} />
+                  <Text style={{ fontSize: 11, color: C.textMuted }}>Metro Manila</Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* GPS pin */}
             <TouchableOpacity
               onPress={() => setShowMap(true)} activeOpacity={0.85}
               style={{ backgroundColor: C.white, borderRadius: 12, overflow: 'hidden', borderWidth: form.service_lat ? 1.5 : 1, borderColor: form.service_lat ? Colors.primary : C.border }}
@@ -827,13 +1277,28 @@ export default function NewBookingScreen() {
               </View>
             </TouchableOpacity>
 
+            <CityPickerModal
+              visible={showCityPicker}
+              onSelect={city => {
+                update('address_city', city)
+                update('address_province', 'Metro Manila')
+              }}
+              onClose={() => setShowCityPicker(false)}
+              C={C}
+            />
+
             <LocationMapPicker
               visible={showMap}
               initial={form.service_lat ? { latitude: form.service_lat, longitude: form.service_lng! } : null}
-              onConfirm={(coord, address) => {
+              onConfirm={(coord, address, geocodedCity) => {
                 update('service_lat', coord.latitude)
                 update('service_lng', coord.longitude)
                 update('service_address_label', address)
+                const matched = matchMetroManilaCity(geocodedCity)
+                if (matched && !form.address_city) {
+                  update('address_city', matched)
+                  update('address_province', 'Metro Manila')
+                }
                 setShowMap(false)
               }}
               onClose={() => setShowMap(false)}
@@ -888,6 +1353,25 @@ export default function NewBookingScreen() {
               />
             </DateTimeField>
 
+            {/* Out-of-hours inline warning */}
+            {form.service_time && !isWithinServiceHours(form.service_time) && (
+              <View style={{
+                backgroundColor: '#fef2f2', borderRadius: 10, padding: 12,
+                borderWidth: 1, borderColor: '#fca5a5',
+                flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+              }}>
+                <Feather name="alert-circle" size={15} color="#dc2626" style={{ marginTop: 1 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#dc2626', marginBottom: 2 }}>
+                    Outside service hours
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#b91c1c', lineHeight: 17 }}>
+                    {formatDisplayTime(form.service_time)} is not within our operating window. Please choose a time between 8:00 AM and 5:00 PM.
+                  </Text>
+                </View>
+              </View>
+            )}
+
             <View style={{ backgroundColor: '#fffbeb', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#fde68a' }}>
               <Text style={{ fontSize: 12, color: '#92400e' }}>
                 Please schedule at least 24 hours in advance. Service hours: 8:00 AM – 5:00 PM.
@@ -901,49 +1385,342 @@ export default function NewBookingScreen() {
           <View style={{ gap: 14 }}>
             <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Review Booking Details</Text>
 
-            {[
-              {
-                title: 'Service',
-                rows: [
-                  { label: 'Type',      value: SERVICE_LABELS[form.service_type!] },
-                  { label: 'Space',     value: form.space_type === 'residential' ? 'Residential' : 'Commercial' },
-                  { label: 'Size',      value: `${form.property_sqm} sqm` },
-                  ...(form.sofa_seaters > 0 ? [{ label: 'Sofas', value: `${form.sofa_seaters} seater${form.sofa_seaters !== 1 ? 's' : ''}` }] : []),
-                  ...(form.other_furniture.trim() ? [{ label: 'Other', value: form.other_furniture.trim() }] : []),
-                  { label: 'Photos',    value: `${form.furniture_images.length} uploaded` },
-                  { label: 'Est. Price', value: `₱${estimatePrice(form.service_type!, parseFloat(form.property_sqm)).toLocaleString()}` },
-                ],
-              },
-              {
-                title: 'Address',
-                rows: [
-                  { label: 'Address', value: [form.address_unit, form.address_street, form.address_city, form.address_province].filter(Boolean).join(', ') },
-                  { label: 'GPS',     value: form.service_lat ? `${form.service_lat.toFixed(5)}, ${form.service_lng!.toFixed(5)}` : 'Not captured' },
-                ],
-              },
-              {
-                title: 'Schedule',
-                rows: [
-                  { label: 'Date', value: form.service_date ? formatDisplayDate(form.service_date) : '—' },
-                  { label: 'Time', value: form.service_time ? formatDisplayTime(form.service_time) : '—' },
-                ],
-              },
-            ].map(section => (
-              <View key={section.title} style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
-                <View style={{ backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSecondary }}>{section.title}</Text>
-                </View>
-                {section.rows.map((row, i) => (
-                  <View key={row.label} style={{
-                    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10,
-                    borderBottomWidth: i < section.rows.length - 1 ? 1 : 0, borderBottomColor: C.borderLight,
+            {/* ── Service hero card ── */}
+            {(() => {
+              const svcDef    = getService(currentServiceSlug ?? '')
+              const svcName   = svcDef?.name ?? SERVICE_LABELS[form.service_type!]
+              const svcImage  = svcDef?.image ?? null
+              const svcAccent = svcDef?.accent ?? Colors.primary
+              const svcCat    = (svcDef?.category ?? '').toUpperCase()
+              const svcIcon   = (svcDef?.placeholderIcon ?? 'home') as React.ComponentProps<typeof Feather>['name']
+              const estPrice  = estimatePrice(form.service_type!, parseFloat(form.property_sqm) || 0)
+              const estHours  = Math.max(1, Math.ceil((parseFloat(form.property_sqm) || 0) / 30))
+              const spaceLabel =
+                form.space_type === 'residential' ? 'Residential'
+                  : form.space_type === 'condo' ? 'Condo'
+                  : form.space_type === 'office' ? 'Office'
+                  : 'Commercial'
+              const extras = [
+                currentServiceSlug === 'sofa_couch_deep_cleaning' && form.sofa_seaters > 0
+                  ? `${form.sofa_seaters} sofa${form.sofa_seaters !== 1 ? 's' : ''}` : null,
+                currentServiceSlug === 'mattress_deep_cleaning' && form.mattress_count > 0
+                  ? `${form.mattress_count} mattress${form.mattress_count !== 1 ? 'es' : ''}` : null,
+                (currentServiceSlug === 'aircon_cleaning' || currentServiceSlug === 'aircon_freon_charging' || currentServiceSlug === 'aircon_repair') && form.aircon_units > 0
+                  ? `${form.aircon_units} unit${form.aircon_units !== 1 ? 's' : ''}` : null,
+                currentServiceSlug === 'carpet_cleaning' && form.carpet_count > 0
+                  ? `${form.carpet_count} carpet${form.carpet_count !== 1 ? 's' : ''}` : null,
+              ].filter(Boolean).join(' · ')
+
+              const Inner = () => (
+                <View style={{ padding: 20 }}>
+                  {/* Decorative icon */}
+                  <View style={{
+                    position: 'absolute', top: 16, right: 16,
+                    width: 64, height: 64, borderRadius: 18,
+                    backgroundColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.18)',
+                    alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <Text style={{ width: 80, fontSize: 13, color: C.textSecondary }}>{row.label}</Text>
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: C.text }}>{row.value}</Text>
+                    <Feather name={svcIcon} size={28} color="#fff" style={{ opacity: 0.75 }} />
+                  </View>
+
+                  {/* Category pill */}
+                  {svcCat ? (
+                    <View style={{
+                      alignSelf: 'flex-start', marginBottom: 8,
+                      backgroundColor: 'rgba(255,255,255,0.12)',
+                      borderRadius: 99, paddingHorizontal: 10, paddingVertical: 3,
+                      borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)',
+                    }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.5 }}>
+                        {svcCat}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {/* Service name */}
+                  <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4, paddingRight: 72, letterSpacing: -0.3 }}>
+                    {svcName}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', marginBottom: 18 }}>
+                    {spaceLabel} · {form.property_sqm} sqm
+                    {extras ? ` · ${extras}` : ''}
+                  </Text>
+
+                  {/* Divider */}
+                  <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.14)', marginBottom: 16 }} />
+
+                  {/* Price + Duration */}
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                    <View>
+                      <Text style={{ fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3 }}>
+                        Estimated Price
+                      </Text>
+                      <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.5 }}>
+                        ₱{estPrice.toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={{
+                      backgroundColor: 'rgba(255,255,255,0.1)',
+                      borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8,
+                      borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+                      alignItems: 'center',
+                    }}>
+                      <Text style={{ fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3 }}>
+                        Est. Duration
+                      </Text>
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>
+                        {svcDef?.duration ?? `~${estHours}h`}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Bottom accent strip */}
+                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, backgroundColor: svcAccent, opacity: 0.7 }} />
+                </View>
+              )
+
+              return (
+                <View style={{ borderRadius: 20, overflow: 'hidden', backgroundColor: '#0f172a' }}>
+                  {svcImage && (
+                    <Image source={svcImage} style={{ width: '100%', height: 160 }} resizeMode="cover" />
+                  )}
+                  <Inner />
+                </View>
+              )
+            })()}
+
+            {/* ── Location card ── */}
+            <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(219,39,119,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Feather name="map-pin" size={14} color={Colors.primary} />
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Service Location</Text>
+              </View>
+              <View style={{ padding: 16, gap: 4 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>
+                  {[form.address_unit, form.address_street].filter(Boolean).join(', ') || '—'}
+                </Text>
+                <Text style={{ fontSize: 13, color: C.textSecondary }}>
+                  {[form.address_barangay, form.address_city, form.address_province].filter(Boolean).join(', ')}
+                </Text>
+                {form.service_lat ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
+                    <Feather name="crosshair" size={12} color={Colors.primary} />
+                    <Text style={{ fontSize: 12, color: Colors.primary, fontWeight: '600' }}>
+                      GPS: {form.service_lat.toFixed(5)}, {form.service_lng!.toFixed(5)}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
+                    <Feather name="alert-circle" size={12} color="#ca8a04" />
+                    <Text style={{ fontSize: 12, color: '#ca8a04', fontWeight: '600' }}>GPS not captured</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {/* ── Schedule card ── */}
+            <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(219,39,119,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Feather name="calendar" size={14} color={Colors.primary} />
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Schedule</Text>
+              </View>
+              <View style={{ flexDirection: 'row' }}>
+                {[
+                  { icon: 'calendar' as const, label: 'Date', value: form.service_date ? formatDisplayDate(form.service_date) : '—' },
+                  { icon: 'clock'    as const, label: 'Time', value: form.service_time ? formatDisplayTime(form.service_time) : '—' },
+                ].map((col, i) => (
+                  <View key={col.label} style={{ flex: 1, padding: 14, borderLeftWidth: i > 0 ? 1 : 0, borderLeftColor: C.borderLight }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 }}>
+                      <Feather name={col.icon} size={12} color={C.textMuted} />
+                      <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600' }}>{col.label}</Text>
+                    </View>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{col.value}</Text>
                   </View>
                 ))}
               </View>
-            ))}
+            </View>
+
+            {/* ── Extra details (if any) ── */}
+            {(form.other_furniture.trim() || form.furniture_images.length > 0 || form.special_notes.trim()) && (
+              <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                  <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(219,39,119,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                    <Feather name="info" size={14} color={Colors.primary} />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Additional Details</Text>
+                </View>
+                {form.other_furniture.trim() ? (
+                  <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: form.furniture_images.length > 0 || form.special_notes.trim() ? 1 : 0, borderBottomColor: C.borderLight }}>
+                    <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 3 }}>Items / Details</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{form.other_furniture.trim()}</Text>
+                  </View>
+                ) : null}
+                {form.furniture_images.length > 0 ? (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderBottomWidth: form.special_notes.trim() ? 1 : 0, borderBottomColor: C.borderLight }}>
+                    <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
+                      Photos · {form.furniture_images.length} {form.furniture_images.length !== 1 ? 'images' : 'image'}
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                      {form.furniture_images.map((uri, i) => (
+                        <Image
+                          key={i}
+                          source={{ uri }}
+                          style={{ width: 90, height: 90, borderRadius: 12, backgroundColor: C.borderLight }}
+                          resizeMode="cover"
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {form.special_notes.trim() ? (
+                  <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                    <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 3 }}>Special Notes</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{form.special_notes.trim()}</Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
+
+            {/* ── Terms & Conditions ── */}
+            <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+              <TouchableOpacity
+                onPress={() => setTermsExpanded(e => !e)}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 }}
+              >
+                <View style={{
+                  width: 34, height: 34, borderRadius: 10,
+                  backgroundColor: agreedToTerms ? 'rgba(22,163,74,0.15)' : 'rgba(219,39,119,0.15)',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Feather name={agreedToTerms ? 'check-circle' : 'file-text'} size={16} color={agreedToTerms ? '#16a34a' : Colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Booking Terms & Conditions</Text>
+                  <Text style={{ fontSize: 11, marginTop: 1, color: agreedToTerms ? '#16a34a' : C.textSecondary }}>
+                    {agreedToTerms ? '✓ Agreed — tap to review' : termsExpanded ? 'Scroll to the bottom to agree' : 'Required — tap to read & agree'}
+                  </Text>
+                </View>
+                {!agreedToTerms && !termsExpanded && (
+                  <View style={{ backgroundColor: '#fee2e2', borderRadius: 99, paddingHorizontal: 8, paddingVertical: 3, marginRight: 6 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#dc2626' }}>Required</Text>
+                  </View>
+                )}
+                <Feather name={termsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={C.textMuted} />
+              </TouchableOpacity>
+
+              {termsExpanded && (
+                <View style={{ borderTopWidth: 1, borderTopColor: C.borderLight, paddingHorizontal: 16, paddingBottom: 16, paddingTop: 12, gap: 14 }}>
+                  {([
+                    {
+                      icon: 'tag' as const,
+                      title: 'Pricing & Final Quote',
+                      items: [
+                        'Estimated price is not final and subject to admin confirmation.',
+                        'Extra charges may apply for larger areas or additional items found on-site.',
+                        'You will be informed of any price changes before service starts.',
+                      ],
+                    },
+                    {
+                      icon: 'x-circle' as const,
+                      title: 'Cancellation Policy',
+                      items: [
+                        'Free cancellation if requested at least 24 hours before service.',
+                        'Cancellations within 24 hours incur a ₱200 fee.',
+                        'Cancelling after the cleaner is in transit or on-site incurs a minimum ₱300 fee.',
+                        'No-shows are treated as same-day cancellations.',
+                      ],
+                    },
+                    {
+                      icon: 'calendar' as const,
+                      title: 'Rescheduling',
+                      items: [
+                        'Rescheduling must be requested at least 24 hours in advance.',
+                        'Subject to cleaner availability.',
+                        'Same-day rescheduling is treated as a cancellation.',
+                      ],
+                    },
+                    {
+                      icon: 'user-check' as const,
+                      title: 'Customer Responsibilities',
+                      items: [
+                        'Ensure property access at the scheduled time.',
+                        'Provide accurate booking details to avoid additional charges.',
+                        'Secure valuables and pets before the cleaner arrives.',
+                      ],
+                    },
+                    {
+                      icon: 'credit-card' as const,
+                      title: 'Payment Terms',
+                      items: [
+                        'Digital payments must be submitted and verified before the service date.',
+                        'Cash is collected by the cleaner upon arrival.',
+                        'Booking remains pending until payment is confirmed.',
+                      ],
+                    },
+                    {
+                      icon: 'shield' as const,
+                      title: 'Liability',
+                      items: [
+                        'We are not liable for pre-existing damage to property or fixtures.',
+                        'Report any damage caused by our cleaner within 24 hours.',
+                        'Liability is limited to the value of the service rendered.',
+                      ],
+                    },
+                  ] as Array<{ icon: React.ComponentProps<typeof Feather>['name']; title: string; items: string[] }>).map((section, si, arr) => (
+                    <View key={section.title} style={{ gap: 6, paddingBottom: si < arr.length - 1 ? 14 : 0, borderBottomWidth: si < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                        <View style={{ width: 24, height: 24, borderRadius: 7, backgroundColor: 'rgba(219,39,119,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                          <Feather name={section.icon} size={12} color={Colors.primary} />
+                        </View>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.text }}>
+                          {section.title}
+                        </Text>
+                      </View>
+                      {section.items.map((item, i) => (
+                        <View key={i} style={{ flexDirection: 'row', gap: 7, paddingLeft: 4 }}>
+                          <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>•</Text>
+                          <Text style={{ flex: 1, fontSize: 12, color: C.textSecondary, lineHeight: 18 }}>{item}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+
+                  {/* ── Agree checkbox — at the very bottom of T&C ── */}
+                  <View style={{ borderTopWidth: 1.5, borderTopColor: C.border, paddingTop: 16 }}>
+                    <TouchableOpacity
+                      onPress={() => setAgreedToTerms(v => !v)}
+                      activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14,
+                        borderRadius: 14, borderWidth: 1.5,
+                        borderColor: agreedToTerms ? Colors.primary : C.border,
+                        backgroundColor: agreedToTerms ? C.primaryBg : C.background,
+                      }}
+                    >
+                      <View style={{
+                        width: 22, height: 22, borderRadius: 6, borderWidth: 1.5,
+                        borderColor: agreedToTerms ? Colors.primary : C.border,
+                        backgroundColor: agreedToTerms ? Colors.primary : 'transparent',
+                        alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0,
+                      }}>
+                        {agreedToTerms && <Feather name="check" size={13} color="#fff" />}
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 13, color: C.text, lineHeight: 20 }}>
+                        I have read and agree to the{' '}
+                        <Text style={{ fontWeight: '700', color: Colors.primary }}>Booking Terms & Conditions</Text>
+                        , including the pricing policy and cancellation fees.
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
 
             <View style={{ backgroundColor: '#f0fdf4', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#bbf7d0', flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
               <Feather name="cpu" size={16} color="#16a34a" style={{ marginTop: 1 }} />
@@ -960,7 +1737,7 @@ export default function NewBookingScreen() {
             <View style={{ backgroundColor: '#f0fdf4', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#bbf7d0' }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803d', marginBottom: 4 }}>Booking Summary</Text>
               <Text style={{ fontSize: 13, color: '#166534' }}>
-                {SERVICE_LABELS[form.service_type!]} · {form.property_sqm} sqm · {form.service_date ? formatDisplayDate(form.service_date) : ''} at {form.service_time ? formatDisplayTime(form.service_time) : ''}
+                {getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type!]} · {form.property_sqm} sqm · {form.service_date ? formatDisplayDate(form.service_date) : ''} at {form.service_time ? formatDisplayTime(form.service_time) : ''}
               </Text>
               <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803d', marginTop: 6 }}>
                 Est. Price: ₱{estimatePrice(form.service_type!, parseFloat(form.property_sqm)).toLocaleString()}
@@ -1123,6 +1900,33 @@ export default function NewBookingScreen() {
               </View>
             )}
 
+            {form.payment_method === 'bank_check' && (
+              <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 16, gap: 12 }}>
+                <View style={{ backgroundColor: '#eff6ff', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#bfdbfe', gap: 12 }}>
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Make check payable to:
+                    </Text>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#1e3a8a' }}>
+                      {paymentSettings.check_payable_to ?? 'Loading...'}
+                    </Text>
+                  </View>
+                  <View style={{ height: 1, backgroundColor: '#bfdbfe' }} />
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Deliver check to:
+                    </Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#1e3a8a', lineHeight: 20 }}>
+                      {paymentSettings.check_delivery_address ?? 'Loading...'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 12, color: C.textSecondary, lineHeight: 18 }}>
+                  Admin will verify receipt of the check before confirming your booking. No upload or reference number is required.
+                </Text>
+              </View>
+            )}
+
             {/* Special notes */}
             <View>
               <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 8 }}>Special Notes (optional)</Text>
@@ -1155,6 +1959,40 @@ export default function NewBookingScreen() {
       {submitting && <SubmitLoader isDark={isDark} C={C} />}
     </KeyboardAvoidingView>
   )
+}
+
+// ─── Additional details helpers ─────────────────────────────────────────────
+
+function getAdditionalDetailsHint(slug: string | undefined): string {
+  if (slug === 'aircon_cleaning' || slug === 'aircon_freon_charging' || slug === 'aircon_repair')
+    return 'Share any relevant aircon details (e.g. brand, model, location of units, known issues).'
+  if (slug === 'grease_trap_cleaning' || slug === 'grease_trap_installation')
+    return 'Include grease trap size, location, or any access instructions for our team.'
+  if (slug === 'mattress_deep_cleaning')
+    return 'Include mattress sizes (single, queen, king) or any specific stain/odor issues.'
+  if (slug === 'sofa_couch_deep_cleaning')
+    return 'Describe fabric type, color, or any stains/pet hair our team should know about.'
+  if (slug === 'carpet_cleaning')
+    return 'Note carpet material, colors, or specific stain areas that need extra attention.'
+  if (slug === 'curtain_dry_cleaning')
+    return 'Include number of curtain panels, fabric type, or any special handling notes.'
+  return 'List any other furniture or items that need cleaning (e.g. 2 beds, 4 dining chairs).'
+}
+
+function getAdditionalDetailsPlaceholder(slug: string | undefined): string {
+  if (slug === 'aircon_cleaning' || slug === 'aircon_freon_charging' || slug === 'aircon_repair')
+    return 'e.g. 2 wall-mounted units (Samsung), 1 window type unit in bedroom'
+  if (slug === 'grease_trap_cleaning' || slug === 'grease_trap_installation')
+    return 'e.g. 500L trap under the kitchen sink, access through back door'
+  if (slug === 'mattress_deep_cleaning')
+    return 'e.g. 1 queen, 2 single — coffee stain on the queen mattress'
+  if (slug === 'sofa_couch_deep_cleaning')
+    return 'e.g. L-shaped fabric sofa, light gray — pet hair and odor issues'
+  if (slug === 'carpet_cleaning')
+    return 'e.g. 2 wool rugs (3x4m), red wine stain on the living room carpet'
+  if (slug === 'curtain_dry_cleaning')
+    return 'e.g. 6 linen panels (floor-length), blackout curtains in master bedroom'
+  return 'e.g. 2 beds, 4 dining chairs, 1 office chair'
 }
 
 // ─── Submit loading screen ───────────────────────────────────────────────────

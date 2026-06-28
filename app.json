@@ -23,7 +23,12 @@
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.maidforyou.cleanconnect",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBhuXy7LrYvZoJl8fkC-FJ4sVg17cTDlDg"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
