@@ -8,7 +8,7 @@ import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import { Booking } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
-import { loadDraft, loadRecentBooking, clearRecentBooking } from '@/lib/bookingDraft'
+import { loadDraft } from '@/lib/bookingDraft'
 import * as Haptics from 'expo-haptics'
 import { ServiceDef, getService } from '@/constants/services'
 import { useServices } from '@/hooks/useServices'
@@ -176,7 +176,7 @@ export default function CustomerHomeScreen() {
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
   const [draft, setDraft] = useState<{ step: number; service_type: string | null; savedAt: string } | null>(null)
-  const [activeBooking, setActiveBooking] = useState<{ id: string; status: string } | null>(null)
+  const [activeBookingsCount, setActiveBookingsCount] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const [serviceRatings, setServiceRatings] = useState<Record<string, { avg: number; count: number }>>({})
   const { groups: serviceGroups } = useServices()
@@ -186,7 +186,7 @@ export default function CustomerHomeScreen() {
   const cardWidth = (width - 40 - 12) / 2
 
   useEffect(() => {
-    if (!activeBooking) return
+    if (!activeBookingsCount) return
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(fabPulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -203,28 +203,21 @@ export default function CustomerHomeScreen() {
     pulse.start()
     ring.start()
     return () => { pulse.stop(); ring.stop(); fabPulse.setValue(0); fabRing.setValue(0) }
-  }, [activeBooking])
+  }, [activeBookingsCount])
 
   useEffect(() => { loadData() }, [])
 
   useFocusEffect(useCallback(() => {
     loadDraft().then(d => setDraft(d ? { step: d.step, service_type: d.form.service_type, savedAt: d.savedAt } : null))
-    loadRecentBooking().then(hint => {
-      if (hint) setActiveBooking(hint as { id: string; status: string })
-    })
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
       supabase
         .from('bookings')
-        .select('id, status')
+        .select('id', { count: 'exact', head: true })
         .eq('customer_id', user.id)
         .not('status', 'in', '(completed,cancelled)')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-        .then(({ data }) => {
-          setActiveBooking((data as { id: string; status: string } | null) ?? null)
-          clearRecentBooking()
+        .then(({ count }) => {
+          setActiveBookingsCount(count ?? 0)
         })
     })
   }, []))
@@ -234,7 +227,7 @@ export default function CustomerHomeScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: profile }, { count }, { data: active }, { data: feedbackRows }] = await Promise.all([
+    const [{ data: profile }, { count }, { count: activeCount }, { data: feedbackRows }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
       supabase
         .from('notifications')
@@ -243,12 +236,9 @@ export default function CustomerHomeScreen() {
         .eq('is_read', false),
       supabase
         .from('bookings')
-        .select('id, status')
+        .select('id', { count: 'exact', head: true })
         .eq('customer_id', user.id)
-        .not('status', 'in', '(completed,cancelled)')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .not('status', 'in', '(completed,cancelled)'),
       supabase
         .from('feedback')
         .select('rating, bookings!inner(service_slug)'),
@@ -271,7 +261,7 @@ export default function CustomerHomeScreen() {
 
     setName(profile?.full_name?.split(' ')[0] ?? 'there')
     setUnreadCount(count ?? 0)
-    setActiveBooking((active as { id: string; status: string } | null) ?? null)
+    setActiveBookingsCount(activeCount ?? 0)
     setServiceRatings(ratings)
     setLoading(false)
     setRefreshing(false)
@@ -347,12 +337,12 @@ export default function CustomerHomeScreen() {
       <Animated.View
         style={[
           s.fabWrap,
-          activeBooking && {
+          activeBookingsCount > 0 && {
             transform: [{ scale: fabPulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.03, 1] }) }],
           },
         ]}
       >
-        {activeBooking && (
+        {activeBookingsCount > 0 && (
           <Animated.View
             pointerEvents="none"
             style={{
@@ -367,17 +357,21 @@ export default function CustomerHomeScreen() {
         <TouchableOpacity
           style={s.fab}
           onPress={() => {
-            if (activeBooking) {
+            if (activeBookingsCount > 0) {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-              router.push(`/(customer)/bookings/${activeBooking.id}` as any)
+              router.push('/(customer)/bookings' as any)
             } else {
               router.push('/(customer)/bookings/new')
             }
           }}
           activeOpacity={0.85}
         >
-          <Feather name={activeBooking ? 'eye' : draft ? 'play' : 'plus'} size={18} color="#fff" />
-          <Text style={s.fabText}>{activeBooking ? 'View Booking' : draft ? 'Resume Booking' : 'Book a Service'}</Text>
+          <Feather name={activeBookingsCount > 0 ? 'list' : draft ? 'play' : 'plus'} size={18} color="#fff" />
+          <Text style={s.fabText}>
+            {activeBookingsCount > 0
+              ? `View Bookings${activeBookingsCount > 1 ? ` (${activeBookingsCount})` : ''}`
+              : draft ? 'Resume Booking' : 'Book a Service'}
+          </Text>
         </TouchableOpacity>
       </Animated.View>
     </View>

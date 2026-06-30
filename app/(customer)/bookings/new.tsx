@@ -461,29 +461,10 @@ export default function NewBookingScreen() {
 
   useEffect(() => {
     async function init() {
-      // ── Step 1: check for an active booking first ────────────────────────────
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setCheckingActive(false); return }
 
-      const { data: activeData } = await supabase
-        .from('bookings')
-        .select('id')
-        .eq('customer_id', user.id)
-        .not('status', 'in', '(completed,cancelled)')
-        .limit(1)
-        .maybeSingle()
-
-      if (activeData?.id) {
-        Alert.alert(
-          'Active Booking Exists',
-          'You already have a pending or active booking. Please complete or cancel it before making a new one.',
-          [{ text: 'View Booking', onPress: () => router.replace(`/(customer)/bookings/${activeData.id}` as any) }],
-          { cancelable: false },
-        )
-        return // checkingActive stays true; component will be replaced
-      }
-
-      // ── Step 2: no active booking — check for a saved draft ─────────────────
+      // Check for a saved draft
       const draft = await loadDraft()
       const shouldRestore = draft && (!serviceSlug || serviceSlug === draft.serviceSlug)
 
@@ -705,15 +686,17 @@ export default function NewBookingScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setError('Not authenticated.'); setSubmitting(false); return }
 
-    const { data: existingActive } = await supabase
+    const { data: conflict } = await supabase
       .from('bookings')
       .select('id')
       .eq('customer_id', user.id)
+      .eq('service_date', toDateString(form.service_date!))
+      .eq('service_time', toTimeString(form.service_time!))
       .not('status', 'in', '(completed,cancelled)')
       .limit(1)
       .maybeSingle()
-    if (existingActive?.id) {
-      setError('You already have an active booking. Please complete or cancel it before submitting a new one.')
+    if (conflict?.id) {
+      setError('You already have a booking scheduled for that date and time. Please choose a different date or time.')
       setSubmitting(false)
       return
     }
