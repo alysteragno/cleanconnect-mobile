@@ -203,7 +203,8 @@ export default function BookingsHistoryScreen() {
       <FlatList
         data={displayed}
         keyExtractor={b => b.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 96, gap: 12 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 96 }}
+        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl

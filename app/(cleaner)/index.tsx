@@ -337,7 +337,7 @@ export default function CleanerHomeScreen() {
                 Assigned Jobs{offers.length > 0 ? ` (${offers.length})` : ""}
               </Text>
               <TouchableOpacity onPress={() => router.push("/(cleaner)/jobs")}>
-                <Text style={s.sectionLink}>All jobs</Text>
+                <Text style={s.sectionLink}>Job History</Text>
               </TouchableOpacity>
             </View>
 

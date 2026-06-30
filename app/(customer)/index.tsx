@@ -176,6 +176,7 @@ export default function CustomerHomeScreen() {
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
   const [draft, setDraft] = useState<{ step: number; service_type: string | null; savedAt: string } | null>(null)
+  const [bookingCount, setBookingCount] = useState(0)
   const [inProgressBooking, setInProgressBooking] = useState<{ id: string; service_name: string | null; service_date: string; space_type: string | null } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [serviceRatings, setServiceRatings] = useState<Record<string, { avg: number; count: number }>>({})
@@ -197,6 +198,11 @@ export default function CustomerHomeScreen() {
         .limit(1)
         .maybeSingle()
         .then(({ data }) => setInProgressBooking(data ?? null))
+      supabase
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('customer_id', user.id)
+        .then(({ count }) => setBookingCount(count ?? 0))
     })
   }, []))
 
@@ -344,15 +350,25 @@ export default function CustomerHomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Floating Book Now / Resume button */}
+      {/* Floating Book Now / Resume / View Bookings button */}
       <View style={s.fabWrap}>
         <TouchableOpacity
           style={s.fab}
-          onPress={() => router.push('/(customer)/bookings/new')}
+          onPress={() => {
+            if (draft) return router.push('/(customer)/bookings/new')
+            if (bookingCount > 0) return router.push('/(customer)/bookings' as any)
+            router.push('/(customer)/bookings/new')
+          }}
           activeOpacity={0.85}
         >
-          <Feather name={draft ? 'play' : 'plus'} size={18} color="#fff" />
-          <Text style={s.fabText}>{draft ? 'Resume Booking' : 'Book a Service'}</Text>
+          <Feather
+            name={draft ? 'play' : bookingCount > 0 ? 'calendar' : 'plus'}
+            size={18}
+            color="#fff"
+          />
+          <Text style={s.fabText}>
+            {draft ? 'Resume Booking' : bookingCount > 0 ? `View Bookings (${bookingCount})` : 'Book a Service'}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
