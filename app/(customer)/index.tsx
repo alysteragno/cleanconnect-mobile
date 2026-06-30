@@ -316,7 +316,7 @@ export default function CustomerHomeScreen() {
 
           {/* ── Services Grid ── */}
           <View style={s.section}>
-            <Text style={s.sectionTitle}>Our Services</Text>
+            <Text style={s.sectionTitle}>Choose Services</Text>
             {serviceGroups.map((group, gi) => (
               <View key={group.category} style={{ gap: 10 }}>
                 {gi > 0 && (
@@ -377,7 +377,7 @@ export default function CustomerHomeScreen() {
           activeOpacity={0.85}
         >
           <Feather name={activeBooking ? 'eye' : draft ? 'play' : 'plus'} size={18} color="#fff" />
-          <Text style={s.fabText}>{activeBooking ? 'View Booking' : draft ? 'Resume Booking' : 'Book a Cleaner'}</Text>
+          <Text style={s.fabText}>{activeBooking ? 'View Booking' : draft ? 'Resume Booking' : 'Book a Service'}</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
