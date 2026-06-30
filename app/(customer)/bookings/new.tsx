@@ -22,6 +22,14 @@ import { estimatePrice } from '@/constants/pricing'
 import { saveDraft, loadDraft, clearDraft, saveRecentBooking } from '@/lib/bookingDraft'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as MediaLibrary from 'expo-media-library'
+import * as ImageManipulator from 'expo-image-manipulator'
+
+const SPACE_IMAGES: Record<string, any> = {
+  residential: require('@/assets/services/residential_cleaning.webp'),
+  commercial:  require('@/assets/services/residential_cleaning.webp'),
+  condo:       require('@/assets/services/condo_cleaning.jpeg'),
+  office:      require('@/assets/services/office_cleaning.webp'),
+}
 
 // ─── Wallet helpers ──────────────────────────────────────────────────────────
 
@@ -301,7 +309,7 @@ const SERVICE_OPTIONS: ServiceType[] = ['general', 'deep_cleaning', 'complete', 
 const SERVICE_SLUG_TO_TYPE: Record<string, ServiceType> = {
   commercial_cleaning:      'general',
   condo_cleaning:           'general',
-  house_cleaning:           'general',
+  general_cleaning:         'general',
   office_cleaning:          'general',
   mattress_deep_cleaning:   'deep_cleaning',
   sofa_couch_deep_cleaning: 'deep_cleaning',
@@ -312,6 +320,7 @@ const SERVICE_SLUG_TO_TYPE: Record<string, ServiceType> = {
   aircon_repair:            'general',
   grease_trap_cleaning:     'general',
   grease_trap_installation: 'general',
+  post_construction:        'post_construction',
 }
 
 
@@ -438,6 +447,7 @@ export default function NewBookingScreen() {
   const { isDark } = useTheme()
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
+  const defaultTime = useRef((() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d })()).current
   const [currentServiceSlug, setCurrentServiceSlug] = useState<string | undefined>(serviceSlug)
   const [showMap, setShowMap] = useState(false)
   const [showCityPicker, setShowCityPicker] = useState(false)
@@ -702,15 +712,14 @@ export default function NewBookingScreen() {
     }
 
     async function uploadToStorage(bucket: string, uri: string, filename: string): Promise<string | null> {
-      // Strip query params before reading extension (iOS URIs can have ?type=... suffixes)
-      const cleanUri = uri.split('?')[0]
-      const ext = cleanUri.split('.').pop()?.toLowerCase() ?? 'jpg'
-      const mime = `image/${ext === 'jpg' ? 'jpeg' : ext}`
-      const fullPath = `${user!.id}/${filename}.${ext}`
+      const converted = await ImageManipulator.manipulateAsync(
+        uri,
+        [],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+      )
+      const fullPath = `${user!.id}/${filename}.jpg`
 
-      // fetch().blob() is unreliable for file:// and content:// URIs in React Native.
-      // Read as base64 via FileSystem then decode to bytes before uploading.
-      const base64 = await FileSystem.readAsStringAsync(uri, {
+      const base64 = await FileSystem.readAsStringAsync(converted.uri, {
         encoding: FileSystem.EncodingType.Base64,
       })
       const binaryStr = atob(base64)
@@ -719,7 +728,7 @@ export default function NewBookingScreen() {
 
       const { error } = await supabase.storage
         .from(bucket)
-        .upload(fullPath, bytes, { contentType: mime, upsert: false })
+        .upload(fullPath, bytes, { contentType: 'image/jpeg', upsert: false })
       if (error) {
         console.error(`[upload] ${bucket}/${fullPath}:`, error.message)
         return null
@@ -951,37 +960,40 @@ export default function NewBookingScreen() {
                   shadowRadius: 10,
                   elevation: 3,
                 }}>
-                  {svcDef.image ? (
-                    <View>
-                      <Image
-                        source={svcDef.image}
-                        style={{ width: '100%', height: 170 }}
-                        resizeMode="cover"
-                      />
-                      <View style={{
-                        position: 'absolute', top: 12, left: 12,
-                        backgroundColor: svcDef.accent + 'DD',
-                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
-                      }}>
-                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
-                          {svcDef.category.toUpperCase()}
-                        </Text>
+                  {(() => {
+                    const spaceImg = SPACE_IMAGES[form.space_type ?? ''] ?? svcDef.image
+                    return spaceImg ? (
+                      <View>
+                        <Image
+                          source={spaceImg}
+                          style={{ width: '100%', height: 170 }}
+                          resizeMode="cover"
+                        />
+                        <View style={{
+                          position: 'absolute', top: 12, left: 12,
+                          backgroundColor: svcDef.accent + 'DD',
+                          borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
+                        }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
+                            {svcDef.category.toUpperCase()}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                  ) : (
-                    <View style={{ width: '100%', height: 110, backgroundColor: svcDef.placeholderBg, alignItems: 'center', justifyContent: 'center' }}>
-                      <Feather name={svcDef.placeholderIcon as any} size={44} color={svcDef.placeholderIconColor} style={{ opacity: 0.35 }} />
-                      <View style={{
-                        position: 'absolute', top: 12, left: 12,
-                        backgroundColor: svcDef.accent + 'DD',
-                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
-                      }}>
-                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
-                          {svcDef.category.toUpperCase()}
-                        </Text>
+                    ) : (
+                      <View style={{ width: '100%', height: 110, backgroundColor: svcDef.placeholderBg, alignItems: 'center', justifyContent: 'center' }}>
+                        <Feather name={svcDef.placeholderIcon as any} size={44} color={svcDef.placeholderIconColor} style={{ opacity: 0.35 }} />
+                        <View style={{
+                          position: 'absolute', top: 12, left: 12,
+                          backgroundColor: svcDef.accent + 'DD',
+                          borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
+                        }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
+                            {svcDef.category.toUpperCase()}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                  )}
+                    )
+                  })()}
                   <View style={{ padding: 16, gap: 6 }}>
                     <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.3 }}>{svcDef.name}</Text>
                     <Text style={{ fontSize: 12, color: C.textSecondary, lineHeight: 18 }}>{svcDef.desc}</Text>
@@ -1333,11 +1345,11 @@ export default function NewBookingScreen() {
             >
               <DateTimePicker
                 mode="time"
-                value={form.service_time ?? (() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d })()}
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                value={form.service_time ?? defaultTime}
+                display="spinner"
                 themeVariant={isDark ? 'dark' : 'light'}
                 accentColor={Colors.primary}
-                {...(Platform.OS === 'ios' ? { minuteInterval: 30 as const } : {})}
+                minuteInterval={30}
                 onChange={(_e: DateTimePickerEvent, date?: Date) => {
                   if (Platform.OS === 'android') setShowTimePicker(false)
                   if (date) update('service_time', date)
@@ -1381,7 +1393,7 @@ export default function NewBookingScreen() {
             {(() => {
               const svcDef    = getService(currentServiceSlug ?? '')
               const svcName   = svcDef?.name ?? SERVICE_LABELS[form.service_type!]
-              const svcImage  = svcDef?.image ?? null
+              const svcImage  = SPACE_IMAGES[form.space_type ?? ''] ?? null
               const svcAccent = svcDef?.accent ?? Colors.primary
               const svcCat    = (svcDef?.category ?? '').toUpperCase()
               const svcIcon   = (svcDef?.placeholderIcon ?? 'home') as React.ComponentProps<typeof Feather>['name']

@@ -24,11 +24,14 @@ type JobOffer = {
   booking_id: string;
   status: string;
   bookings: {
-    service_slug: string;
+    service_name: string | null;
+    service_slug: string | null;
+    space_type: string | null;
     service_date: string;
     service_time: string;
     property_sqm: number;
     base_price: number;
+    duration_hours: number | null;
     address_city: string | null;
     address_street: string | null;
     address_unit: string | null;
@@ -206,8 +209,8 @@ export default function CleanerHomeScreen() {
               `
             id, booking_id, status,
             bookings (
-              service_slug, service_date, service_time,
-              property_sqm, base_price,
+              service_name, service_slug, space_type, service_date, service_time,
+              property_sqm, base_price, duration_hours,
               address_city, address_street, address_unit,
               service_lat, service_lng,
               customer_id, status, created_at,
@@ -356,10 +359,14 @@ export default function CleanerHomeScreen() {
                     <AssignedJobCard
                       key={offer.id}
                       serviceSlug={bk?.service_slug}
+                      serviceName={bk?.service_name}
+                      spaceType={bk?.space_type}
                       serviceDate={bk?.service_date ?? ""}
                       serviceTime={bk?.service_time ?? ""}
                       basePrice={bk?.base_price ?? 0}
                       propertySqm={bk?.property_sqm ?? 0}
+                      durationHours={bk?.duration_hours}
+                      paymentMethod={bk?.payment_method}
                       addressUnit={bk?.address_unit}
                       addressStreet={bk?.address_street}
                       addressCity={bk?.address_city}
@@ -419,6 +426,7 @@ export default function CleanerHomeScreen() {
             .filter(Boolean)
             .join(", ")}
           serviceLabel={
+            mapOffer.bookings.service_name ??
             getService(mapOffer.bookings.service_slug ?? "")?.name ??
             "Cleaning Service"
           }

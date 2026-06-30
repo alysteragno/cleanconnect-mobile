@@ -130,15 +130,15 @@ const SERVICES: ServiceDef[] = [
     accent: '#b45309', duration: '3–5 hrs', startingPrice: 2500, serviceType: 'general',
   },
 
-  // ── General Cleaning (space-based, no dedicated images) ────────────────────
+  // ── General Cleaning ───────────────────────────────────────────────────────
   {
-    slug: 'house_cleaning',
-    name: 'House Cleaning',
+    slug: 'general_cleaning',
+    name: 'General Cleaning',
     category: 'General Cleaning',
     categoryIcon: 'home',
     desc: 'Thorough cleaning for houses, townhouses, and residential properties.',
     fullDesc: 'Our professional house cleaning covers all rooms — living areas, bedrooms, kitchen, and bathrooms. We dust, vacuum, mop, wipe surfaces, and sanitize key areas to leave your home spotless and fresh.',
-    image: null,
+    image: require('@/assets/services/residential_cleaning.webp'),
     placeholderBg: '#fce7f3', placeholderIcon: 'home', placeholderIconColor: '#db2777',
     accent: '#db2777', duration: '3–5 hrs', startingPrice: 1500, serviceType: 'general',
   },
@@ -149,7 +149,7 @@ const SERVICES: ServiceDef[] = [
     categoryIcon: 'square',
     desc: 'Efficient cleaning tailored for condominiums and studio units.',
     fullDesc: 'Specialized cleaning service for condos and studio units. We work efficiently in smaller spaces, covering all surfaces, appliances, bathrooms, and floors — making your condo feel hotel-fresh after every session.',
-    image: null,
+    image: require('@/assets/services/condo_cleaning.jpeg'),
     placeholderBg: '#eff6ff', placeholderIcon: 'square', placeholderIconColor: '#3b82f6',
     accent: '#3b82f6', duration: '2–4 hrs', startingPrice: 1200, serviceType: 'general',
   },
@@ -160,7 +160,7 @@ const SERVICES: ServiceDef[] = [
     categoryIcon: 'briefcase',
     desc: 'Professional cleaning for offices, workspaces, and business premises.',
     fullDesc: 'Keep your workplace clean, healthy, and professional. We clean desks, floors, pantries, restrooms, and common areas — using commercial-grade supplies that meet workplace hygiene standards.',
-    image: null,
+    image: require('@/assets/services/office_cleaning.webp'),
     placeholderBg: '#f0fdf4', placeholderIcon: 'briefcase', placeholderIconColor: '#16a34a',
     accent: '#16a34a', duration: '2–4 hrs', startingPrice: 1200, serviceType: 'general',
   },
@@ -174,6 +174,17 @@ const SERVICES: ServiceDef[] = [
     image: null,
     placeholderBg: '#fff7ed', placeholderIcon: 'package', placeholderIconColor: '#ea580c',
     accent: '#ea580c', duration: '3–5 hrs', startingPrice: 1500, serviceType: 'general',
+  },
+  {
+    slug: 'post_construction',
+    name: 'Post-Construction Cleaning',
+    category: 'General Cleaning',
+    categoryIcon: 'tool',
+    desc: 'Thorough cleanup after construction, renovation, or remodeling work.',
+    fullDesc: 'Post-construction cleaning removes dust, debris, paint splatters, and construction residue from all surfaces. Our team does a full top-to-bottom clean — windows, floors, walls, fixtures — leaving the space move-in or open-for-business ready.',
+    image: null,
+    placeholderBg: '#fef3c7', placeholderIcon: 'tool', placeholderIconColor: '#d97706',
+    accent: '#d97706', duration: '4–8 hrs', startingPrice: 3000, serviceType: 'post_construction',
   },
 ]
 

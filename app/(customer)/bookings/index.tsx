@@ -14,6 +14,13 @@ import AppHeader from '@/components/AppHeader'
 import { Booking, BookingStatus, STATUS_LABELS } from '@/constants/types'
 import { getService } from '@/constants/services'
 
+const SPACE_IMAGES: Record<string, any> = {
+  residential: require('@/assets/services/residential_cleaning.webp'),
+  commercial:  require('@/assets/services/residential_cleaning.webp'),
+  condo:       require('@/assets/services/condo_cleaning.jpeg'),
+  office:      require('@/assets/services/office_cleaning.webp'),
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<BookingStatus, { bg: string; text: string; dot: string }> = {
@@ -242,7 +249,7 @@ export default function BookingsHistoryScreen() {
           const svc         = b.service_slug ? getService(b.service_slug) : undefined
           const serviceName = svc?.name ?? b.service_name ?? 'Cleaning Service'
           const svcIcon     = (svc?.placeholderIcon ?? 'home') as keyof typeof Feather.glyphMap
-          const svcImage    = svc?.image ?? null
+          const svcImage    = SPACE_IMAGES[b.space_type ?? ''] ?? null
           const sc          = STATUS_COLORS[b.status as BookingStatus] ?? STATUS_COLORS.pending
 
           return (

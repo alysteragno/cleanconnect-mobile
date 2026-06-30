@@ -3,15 +3,22 @@ import MapView, { Marker, PROVIDER_GOOGLE, PROVIDER_DEFAULT } from 'react-native
 import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
-import { getService } from '@/constants/services'
 import CustomerInfoCard from '@/components/CustomerInfoCard'
+import GCashLogo from '@/assets/gcash_logo.svg'
+import MayaLogo from '@/assets/maya_logo.svg'
 
-const SVC_COLORS: Record<string, { icon: string; color: string; bg: string }> = {
-  general:           { icon: 'home',   color: '#0891b2', bg: '#e0f2fe' },
-  deep_cleaning:     { icon: 'layers', color: '#7c3aed', bg: '#ede9fe' },
-  complete:          { icon: 'star',   color: '#db2777', bg: '#fce7f3' },
-  disinfection:      { icon: 'shield', color: '#16a34a', bg: '#dcfce7' },
-  post_construction: { icon: 'tool',   color: '#ca8a04', bg: '#fef9c3' },
+const SPACE_IMAGES: Record<string, any> = {
+  residential: require('@/assets/services/residential_cleaning.webp'),
+  commercial:  require('@/assets/services/residential_cleaning.webp'),
+  condo:       require('@/assets/services/condo_cleaning.jpeg'),
+  office:      require('@/assets/services/office_cleaning.webp'),
+}
+
+const SPACE_FALLBACK: Record<string, { icon: string; color: string; bg: string }> = {
+  residential: { icon: 'home',      color: '#db2777', bg: '#fce7f3' },
+  commercial:  { icon: 'package',   color: '#ea580c', bg: '#fff7ed' },
+  condo:       { icon: 'square',    color: '#3b82f6', bg: '#eff6ff' },
+  office:      { icon: 'briefcase', color: '#16a34a', bg: '#f0fdf4' },
 }
 
 function fmtDate(d: string) {
@@ -26,9 +33,38 @@ function fmtTime(t: string) {
   return `${hr % 12 || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`
 }
 
+type PaymentMeta = { label: string; color: string; bg: string } & (
+  | { logo: React.FC<{ width: number; height: number }>; logoBg: string; logoW: number; logoH: number; icon?: never }
+  | { icon: string; logo?: never }
+)
+
+const PAYMENT_META: Record<string, PaymentMeta> = {
+  cash:          { label: 'Cash',          icon: 'dollar-sign', color: '#16a34a', bg: '#dcfce7' },
+  gcash:         { label: 'GCash',         logo: GCashLogo as any, logoBg: '#fff',     logoW: 14, logoH: 14, color: '#007aff', bg: '#e0f2fe' },
+  maya:          { label: 'Maya',          logo: MayaLogo  as any, logoBg: '#0a1628', logoW: 20, logoH: 6,  color: '#00b4a8', bg: '#ccfbf1' },
+  bank_transfer: { label: 'Bank Transfer', icon: 'credit-card', color: '#7c3aed', bg: '#ede9fe' },
+  bank_check:    { label: 'Bank Check',    icon: 'file-text',   color: '#ca8a04', bg: '#fef9c3' },
+}
+
+function PaymentChip({ method, textSecondary, chipBg }: { method: string; textSecondary: string; chipBg: string }) {
+  const meta = PAYMENT_META[method] ?? { label: method, icon: 'credit-card', color: textSecondary, bg: chipBg }
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: meta.bg, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5 }}>
+      {meta.logo ? (
+        <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: meta.logoBg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          <meta.logo width={meta.logoW} height={meta.logoH} />
+        </View>
+      ) : (
+        <Feather name={meta.icon as any} size={10} color={meta.color} />
+      )}
+      <Text style={{ fontSize: 11, color: meta.color, fontWeight: '600' }}>{meta.label}</Text>
+    </View>
+  )
+}
+
 type Props = {
-  serviceSlug?: string | null
   serviceName?: string | null
+  spaceType?: string | null
   serviceDate: string
   serviceTime: string
   basePrice: number
@@ -37,6 +73,7 @@ type Props = {
   addressUnit?: string | null
   addressStreet?: string | null
   addressCity?: string | null
+  paymentMethod?: string | null
   serviceLatLng?: { lat: number; lng: number } | null
   photos?: string[]
   customer?: { full_name: string; phone: string | null } | null
@@ -46,15 +83,15 @@ type Props = {
 }
 
 export default function AssignedJobCard({
-  serviceSlug, serviceName, serviceDate, serviceTime,
+  serviceName, spaceType, serviceDate, serviceTime,
   basePrice, propertySqm, durationHours,
-  addressUnit, addressStreet, addressCity,
+  addressUnit, addressStreet, addressCity, paymentMethod,
   serviceLatLng, photos = [], customer, bookedAt,
   onMapPress, renderAction,
 }: Props) {
   const C = useThemeColors()
-  const svcDef = getService(serviceSlug ?? '')
-  const svcFallback = SVC_COLORS[serviceSlug ?? ''] ?? SVC_COLORS.general
+  const cardImage = SPACE_IMAGES[spaceType ?? ''] ?? null
+  const fallback = SPACE_FALLBACK[spaceType ?? ''] ?? SPACE_FALLBACK.residential
   const hasCoords = serviceLatLng != null
   const addressLabel = [addressUnit, addressStreet, addressCity].filter(Boolean).join(', ')
 
@@ -67,16 +104,16 @@ export default function AssignedJobCard({
     }}>
       {/* Header: icon · service name · date/time · price */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12 }}>
-        {svcDef?.image ? (
-          <Image source={svcDef.image} style={{ width: 44, height: 44, borderRadius: 12 }} resizeMode="cover" />
+        {cardImage ? (
+          <Image source={cardImage} style={{ width: 44, height: 44, borderRadius: 12 }} resizeMode="cover" />
         ) : (
-          <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: svcFallback.bg, alignItems: 'center', justifyContent: 'center' }}>
-            <Feather name={svcFallback.icon as any} size={20} color={svcFallback.color} />
+          <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: fallback.bg, alignItems: 'center', justifyContent: 'center' }}>
+            <Feather name={fallback.icon as any} size={20} color={fallback.color} />
           </View>
         )}
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>
-            {svcDef?.name ?? serviceName ?? 'Cleaning Service'}
+            {serviceName ?? 'Cleaning Service'}
           </Text>
           <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2 }}>
             {fmtDate(serviceDate)} · {fmtTime(serviceTime)}
@@ -175,6 +212,9 @@ export default function AssignedJobCard({
             <Feather name="clock" size={10} color={C.textSecondary} />
             <Text style={{ fontSize: 11, color: C.textSecondary, fontWeight: '500' }}>~{durationHours}h</Text>
           </View>
+        )}
+        {paymentMethod && (
+          <PaymentChip method={paymentMethod} textSecondary={C.textSecondary} chipBg={C.background} />
         )}
       </View>
 

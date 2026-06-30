@@ -661,7 +661,7 @@ export default function BookingDetailScreen() {
                           color: Platform.OS === 'ios' ? '#0d47a1' : '#c62828',
                           letterSpacing: 0.3,
                         }}>
-                          {Platform.OS === 'ios' ? '🗺 Apple Maps' : '📍 Google Maps'}
+                          {Platform.OS === 'ios' ? 'Apple Maps' : '📍 Google Maps'}
                         </Text>
                       </View>
                     </View>

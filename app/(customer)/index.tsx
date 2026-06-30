@@ -176,7 +176,7 @@ export default function CustomerHomeScreen() {
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
   const [draft, setDraft] = useState<{ step: number; service_type: string | null; savedAt: string } | null>(null)
-  const [activeBookingsCount, setActiveBookingsCount] = useState(0)
+  const [inProgressBooking, setInProgressBooking] = useState<{ id: string; service_name: string | null; service_date: string; space_type: string | null } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [serviceRatings, setServiceRatings] = useState<Record<string, { avg: number; count: number }>>({})
   const { groups: serviceGroups } = useServices()
@@ -186,7 +186,7 @@ export default function CustomerHomeScreen() {
   const cardWidth = (width - 40 - 12) / 2
 
   useEffect(() => {
-    if (!activeBookingsCount) return
+    if (!inProgressBooking) return
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(fabPulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -203,7 +203,7 @@ export default function CustomerHomeScreen() {
     pulse.start()
     ring.start()
     return () => { pulse.stop(); ring.stop(); fabPulse.setValue(0); fabRing.setValue(0) }
-  }, [activeBookingsCount])
+  }, [inProgressBooking])
 
   useEffect(() => { loadData() }, [])
 
@@ -213,12 +213,12 @@ export default function CustomerHomeScreen() {
       if (!user) return
       supabase
         .from('bookings')
-        .select('id', { count: 'exact', head: true })
+        .select('id, service_name, service_date, space_type')
         .eq('customer_id', user.id)
-        .not('status', 'in', '(completed,cancelled)')
-        .then(({ count }) => {
-          setActiveBookingsCount(count ?? 0)
-        })
+        .eq('status', 'in_progress')
+        .limit(1)
+        .maybeSingle()
+        .then(({ data }) => setInProgressBooking(data ?? null))
     })
   }, []))
 
@@ -227,7 +227,7 @@ export default function CustomerHomeScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: profile }, { count }, { count: activeCount }, { data: feedbackRows }] = await Promise.all([
+    const [{ data: profile }, { count }, { data: inProgress }, { data: feedbackRows }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
       supabase
         .from('notifications')
@@ -236,9 +236,11 @@ export default function CustomerHomeScreen() {
         .eq('is_read', false),
       supabase
         .from('bookings')
-        .select('id', { count: 'exact', head: true })
+        .select('id, service_name, service_date, space_type')
         .eq('customer_id', user.id)
-        .not('status', 'in', '(completed,cancelled)'),
+        .eq('status', 'in_progress')
+        .limit(1)
+        .maybeSingle(),
       supabase
         .from('feedback')
         .select('rating, bookings!inner(service_slug)'),
@@ -261,7 +263,7 @@ export default function CustomerHomeScreen() {
 
     setName(profile?.full_name?.split(' ')[0] ?? 'there')
     setUnreadCount(count ?? 0)
-    setActiveBookingsCount(activeCount ?? 0)
+    setInProgressBooking(inProgress ?? null)
     setServiceRatings(ratings)
     setLoading(false)
     setRefreshing(false)
@@ -304,6 +306,37 @@ export default function CustomerHomeScreen() {
           {/* ── Ad Banner Carousel ── */}
           <AdCarousel />
 
+          {/* ── In-Progress Booking Card ── */}
+          {inProgressBooking && (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push(`/(customer)/bookings/${inProgressBooking.id}` as any)}
+              style={{
+                backgroundColor: '#7c3aed', borderRadius: 16, padding: 16,
+                flexDirection: 'row', alignItems: 'center', gap: 14,
+                shadowColor: '#7c3aed', shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
+              }}
+            >
+              <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}>
+                <Feather name="activity" size={22} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 0.5, marginBottom: 2 }}>IN PROGRESS</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }} numberOfLines={1}>
+                  {inProgressBooking.service_name ?? 'Cleaning Service'}
+                </Text>
+                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>
+                  {new Date(inProgressBooking.service_date + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.85)' }}>View</Text>
+                <Feather name="chevron-right" size={16} color="rgba(255,255,255,0.85)" />
+              </View>
+            </TouchableOpacity>
+          )}
+
           {/* ── Services Grid ── */}
           <View style={s.section}>
             <Text style={s.sectionTitle}>Choose Services</Text>
@@ -337,12 +370,12 @@ export default function CustomerHomeScreen() {
       <Animated.View
         style={[
           s.fabWrap,
-          activeBookingsCount > 0 && {
+          !!inProgressBooking && {
             transform: [{ scale: fabPulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.03, 1] }) }],
           },
         ]}
       >
-        {activeBookingsCount > 0 && (
+        {!!inProgressBooking && (
           <Animated.View
             pointerEvents="none"
             style={{
@@ -356,22 +389,11 @@ export default function CustomerHomeScreen() {
         )}
         <TouchableOpacity
           style={s.fab}
-          onPress={() => {
-            if (activeBookingsCount > 0) {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-              router.push('/(customer)/bookings' as any)
-            } else {
-              router.push('/(customer)/bookings/new')
-            }
-          }}
+          onPress={() => router.push('/(customer)/bookings/new')}
           activeOpacity={0.85}
         >
-          <Feather name={activeBookingsCount > 0 ? 'list' : draft ? 'play' : 'plus'} size={18} color="#fff" />
-          <Text style={s.fabText}>
-            {activeBookingsCount > 0
-              ? `View Bookings${activeBookingsCount > 1 ? ` (${activeBookingsCount})` : ''}`
-              : draft ? 'Resume Booking' : 'Book a Service'}
-          </Text>
+          <Feather name={draft ? 'play' : 'plus'} size={18} color="#fff" />
+          <Text style={s.fabText}>{draft ? 'Resume Booking' : 'Book a Service'}</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>

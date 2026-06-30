@@ -15,6 +15,9 @@ const FALLBACK_IMAGES: Record<string, ImageSourcePropType> = {
   aircon_repair:            require('@/assets/services/aircon_repair.webp'),
   grease_trap_cleaning:     require('@/assets/services/greasetrap.webp'),
   grease_trap_installation: require('@/assets/services/greasetrap_installation.webp'),
+  general_cleaning:         require('@/assets/services/residential_cleaning.webp'),
+  condo_cleaning:           require('@/assets/services/condo_cleaning.jpeg'),
+  office_cleaning:          require('@/assets/services/office_cleaning.webp'),
 }
 
 type DbService = {
