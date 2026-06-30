@@ -25,6 +25,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useTheme } from "@/context/ThemeContext";
 import AppHeader from "@/components/AppHeader";
 import { getService } from "@/constants/services";
+import AssignedJobCard from "@/components/AssignedJobCard";
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: "Cash",
@@ -70,7 +71,9 @@ type JobInfo = {
   furniture_images: string[] | null;
   started_at: string | null;
   customer_name: string | null;
+  customer_phone: string | null;
   customer_id: string | null;
+  booking_created_at: string | null;
 };
 
 const ARRIVAL_RADIUS_METERS = 500;
@@ -307,6 +310,27 @@ export default function ActiveJobScreen() {
   async function confirmArrival() {
     setUpdating(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: activeJob } = await supabase
+          .from("cleaner_assignments")
+          .select("id, bookings!inner(status)")
+          .eq("cleaner_id", user.id)
+          .eq("bookings.status", "in_progress")
+          .neq("id", assignmentId)
+          .limit(1)
+          .maybeSingle();
+        if (activeJob) {
+          Alert.alert(
+            "Job Already In Progress",
+            "You already have another job in progress. Please complete it before starting a new one.",
+            [{ text: "OK" }],
+          );
+          setUpdating(false);
+          return;
+        }
+      }
+
       const now = new Date().toISOString();
       startMsRef.current = Date.now();
 
@@ -884,11 +908,6 @@ export default function ActiveJobScreen() {
             >
               {formatElapsed(elapsed)}
             </Text>
-            {job.customer_name && (
-              <Text style={{ color: "#ddd6fe", fontSize: 13, marginTop: 8 }}>
-                Customer: {job.customer_name}
-              </Text>
-            )}
           </View>
         )}
 

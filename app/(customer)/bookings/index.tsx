@@ -209,9 +209,16 @@ export default function CurrentBookingScreen() {
   async function submitFeedback() {
     if (rating === 0) { Alert.alert('Rating required', 'Please select a star rating.'); return }
     setSubmitting(true)
-    const cleaner_id = booking?.cleaner_assignments?.find(a => a.status === 'accepted')?.cleaner_id ?? null
+    const { data: { user } } = await supabase.auth.getUser()
+    const cleaner_id = booking?.cleaner_assignments?.find(
+      a => ['accepted', 'assigned', 'completed'].includes(a.status)
+    )?.cleaner_id ?? null
     const { error } = await supabase.from('feedback').insert({
-      booking_id: booking?.id, cleaner_id, rating, comment: comment.trim() || null,
+      booking_id: booking?.id,
+      customer_id: user?.id,
+      cleaner_id,
+      rating,
+      comment: comment.trim() || null,
     })
     setSubmitting(false)
     if (error) { Alert.alert('Error', error.message); return }

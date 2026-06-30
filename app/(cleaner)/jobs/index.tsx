@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   View, Text, TouchableOpacity, FlatList, Image,
   ScrollView, ActivityIndicator, RefreshControl,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
@@ -11,6 +11,7 @@ import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import { getService } from '@/constants/services'
 import AppHeader from '@/components/AppHeader'
+import CustomerInfoCard from '@/components/CustomerInfoCard'
 
 type Assignment = {
   id: string
@@ -31,7 +32,8 @@ type Assignment = {
     status: string
     payment_method: string
     payment_status: string
-    customer: { full_name: string } | null
+    created_at: string
+    customer: { full_name: string; phone: string | null } | null
   }
 }
 
@@ -63,18 +65,19 @@ export default function CleanerJobsScreen() {
   const C = useThemeColors()
   const { isDark } = useTheme()
   const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, { rating: number; comment: string | null }>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [activeFilter, setActiveFilter] = useState<string>('assigned')
   const [unreadCount, setUnreadCount] = useState(0)
 
-  useEffect(() => { loadJobs() }, [])
+  useFocusEffect(useCallback(() => { loadJobs() }, []))
 
   async function loadJobs() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data }, { count }] = await Promise.all([
+    const [{ data }, { data: feedbackRows }, { count }] = await Promise.all([
       supabase
         .from('cleaner_assignments')
         .select(`
@@ -82,13 +85,17 @@ export default function CleanerJobsScreen() {
           bookings (
             service_slug, service_name, service_date, service_time, property_sqm,
             base_price, duration_hours, address_unit, address_street, address_city,
-            address_province, status, payment_method, payment_status,
-            customer:profiles!customer_id(full_name)
+            address_province, status, payment_method, payment_status, created_at,
+            customer:profiles!customer_id(full_name, phone)
           )
         `)
         .eq('cleaner_id', user.id)
         .in('status', ['assigned', 'completed'])
-        .order('assigned_at', { ascending: false }),
+        .order('assigned_at', { ascending: false })
+        .order('service_date', { referencedTable: 'bookings', ascending: true }),
+      supabase
+        .from('feedback')
+        .select('booking_id, rating, comment'),
       supabase
         .from('notifications')
         .select('id', { count: 'exact', head: true })
@@ -96,16 +103,22 @@ export default function CleanerJobsScreen() {
         .eq('is_read', false),
     ])
 
+    const map: Record<string, { rating: number; comment: string | null }> = {}
+    ;(feedbackRows ?? []).forEach((f: any) => { map[f.booking_id] = { rating: f.rating, comment: f.comment } })
+
     setAssignments((data ?? []) as unknown as Assignment[])
+    setFeedbackMap(map)
     setUnreadCount(count ?? 0)
     setLoading(false)
     setRefreshing(false)
   }
 
-  const filtered = useMemo(
-    () => assignments.filter(a => a.status === activeFilter),
-    [assignments, activeFilter]
-  )
+  const filtered = useMemo(() => {
+    const isCompleted = (a: Assignment) =>
+      a.status === 'completed' || a.bookings?.status === 'completed'
+    if (activeFilter === 'completed') return assignments.filter(isCompleted)
+    return assignments.filter(a => !isCompleted(a))
+  }, [assignments, activeFilter])
 
   if (loading) {
     return (
@@ -149,6 +162,7 @@ export default function CleanerJobsScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+
       </View>
 
       <FlatList
@@ -181,10 +195,11 @@ export default function CleanerJobsScreen() {
         renderItem={({ item }) => {
           const svc = getService(item.bookings?.service_slug ?? '')
           const b = item.bookings
-          const isCompleted = item.status === 'completed'
+          const isCompleted = item.status === 'completed' || b?.status === 'completed'
           const isInProgress = b?.status === 'in_progress'
           const address = [b?.address_unit, b?.address_street, b?.address_city, b?.address_province]
             .filter(Boolean).join(', ')
+          const fb = feedbackMap[item.booking_id]
 
           return (
             <View style={{
@@ -260,12 +275,6 @@ export default function CleanerJobsScreen() {
                     <Text style={{ fontSize: 13, color: C.textSecondary, flex: 1, lineHeight: 18 }}>{address}</Text>
                   </View>
                 ) : null}
-                {b?.customer?.full_name ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Feather name="user" size={13} color={C.textMuted} />
-                    <Text style={{ fontSize: 13, color: C.textSecondary }}>{b.customer.full_name}</Text>
-                  </View>
-                ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Feather name="credit-card" size={13} color={C.textMuted} />
                   <Text style={{ fontSize: 13, color: C.textSecondary }}>
@@ -277,35 +286,77 @@ export default function CleanerJobsScreen() {
                 </View>
               </View>
 
-              {/* 5-star waiting for review (completed only) */}
-              {isCompleted && (
-                <View style={{
-                  marginHorizontal: 16, marginTop: 12, marginBottom: 4,
-                  backgroundColor: '#fffbeb', borderRadius: 12, borderWidth: 1,
-                  borderColor: '#b4a56bff', paddingHorizontal: 14, paddingVertical: 10,
-                  flexDirection: 'row', alignItems: 'center', gap: 10,
-                }}>
-                  <View style={{ flexDirection: 'row', gap: 3 }}>
-                    {[1,2,3,4,5].map(n => (
-                      <Feather key={n} name="star" size={16} color="#fde68a" />
-                    ))}
-                  </View>
-                  <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>
-                    Waiting for customer review
-                  </Text>
-                </View>
-              )}
+              {/* Customer info */}
+              <CustomerInfoCard customer={b?.customer} bookedAt={b?.created_at} />
 
-              {/* Divider + action button */}
-              <View style={{ height: 1, backgroundColor: C.borderLight, marginTop: 12 }} />
-              <TouchableOpacity
-                style={{
-                  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  paddingVertical: 14,
-                  backgroundColor: isCompleted ? C.background : isInProgress ? '#7c3aed' : Colors.primary,
-                }}
-              >
-              </TouchableOpacity>
+              {/* Feedback banner (completed only) */}
+              {isCompleted && (() => {
+                return fb ? (
+                  <View style={{
+                    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
+                    backgroundColor: '#f0fdf4', borderRadius: 12, borderWidth: 1,
+                    borderColor: '#86efac', paddingHorizontal: 14, paddingVertical: 10, gap: 4,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ flexDirection: 'row', gap: 3 }}>
+                        {[1,2,3,4,5].map(n => (
+                          <Feather key={n} name="star" size={15} color={n <= fb.rating ? '#f59e0b' : '#d1d5db'} />
+                        ))}
+                      </View>
+                      <Text style={{ fontSize: 12, color: '#15803d', fontWeight: '700' }}>
+                        {fb.rating}/5 · Customer reviewed
+                      </Text>
+                    </View>
+                    {fb.comment ? (
+                      <Text style={{ fontSize: 12, color: '#166534', fontStyle: 'italic' }} numberOfLines={2}>
+                        "{fb.comment}"
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={{
+                    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
+                    backgroundColor: '#fffbeb', borderRadius: 12, borderWidth: 1,
+                    borderColor: '#fcd34d', paddingHorizontal: 14, paddingVertical: 10,
+                    flexDirection: 'row', alignItems: 'center', gap: 10,
+                  }}>
+                    <View style={{ flexDirection: 'row', gap: 3 }}>
+                      {[1,2,3,4,5].map(n => (
+                        <Feather key={n} name="star" size={15} color="#fde68a" />
+                      ))}
+                    </View>
+                    <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>
+                      Waiting for customer review
+                    </Text>
+                  </View>
+                )
+              })()}
+
+              {/* Divider + action button (upcoming/in-progress only) */}
+              {!isCompleted && (
+                <>
+                  <View style={{ height: 1, backgroundColor: C.borderLight, marginTop: 12 }} />
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      paddingVertical: 14,
+                      backgroundColor: isInProgress ? '#7c3aed' : Colors.primary,
+                    }}
+                    onPress={() => router.push({
+                      pathname: `/(cleaner)/jobs/${item.id}` as any,
+                    })}
+                  >
+                    <Feather
+                      name={isInProgress ? 'activity' : 'play-circle'}
+                      size={15}
+                      color="#fff"
+                    />
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>
+                      {isInProgress ? 'Resume Job' : 'Start Job'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           )
         }}
