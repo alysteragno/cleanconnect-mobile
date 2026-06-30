@@ -76,7 +76,7 @@ Client is at `lib/supabase.ts`. Uses `AsyncStorage` for session persistence.
 **2A — Cleaner Operations**
 - [ ] Job list: offered + accepted/upcoming (`app/(cleaner)/jobs.tsx` — currently placeholder)
 - [ ] Job detail page (`app/(cleaner)/jobs/[id].tsx`)
-- [ ] Active job screen: GPS arrival check → start → complete (`app/(cleaner)/jobs/active.tsx`)
+- [ ] Active job flow: GPS arrival check → start → complete (built into `app/(cleaner)/jobs/[id].tsx`, not a separate screen)
 
 **2B — Geo-location & Geo-tagging**
 - [ ] Capture service location GPS on customer booking form (saves `service_lat/lng` to DB)

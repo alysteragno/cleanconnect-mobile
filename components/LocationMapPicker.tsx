@@ -10,10 +10,17 @@ import { Colors } from '@/constants/colors'
 
 export type Coord = { latitude: number; longitude: number }
 
+export type GeocodedParts = {
+  streetNumber: string
+  street: string
+  district: string
+  subregion: string
+}
+
 type Props = {
   visible: boolean
   initial?: Coord | null
-  onConfirm: (coord: Coord, address: string, city: string) => void
+  onConfirm: (coord: Coord, address: string, city: string, parts: GeocodedParts) => void
   onClose: () => void
 }
 
@@ -24,19 +31,29 @@ const MANILA: Region = {
   longitudeDelta: 0.008,
 }
 
-async function reverseGeocode(coord: Coord): Promise<{ label: string; city: string }> {
+async function reverseGeocode(coord: Coord): Promise<{ label: string; city: string; parts: GeocodedParts }> {
+  const emptyParts: GeocodedParts = { streetNumber: '', street: '', district: '', subregion: '' }
   try {
     const results = await Location.reverseGeocodeAsync(coord)
     if (results.length > 0) {
       const r = results[0]
-      const parts = [r.name, r.street, r.district, r.city, r.region]
+      const labelParts = [r.name, r.street, r.district, r.city, r.region]
         .filter((s): s is string => !!s && s.trim().length > 0)
-      return { label: parts.join(', '), city: r.city ?? '' }
+      return {
+        label: labelParts.join(', '),
+        city: r.city ?? '',
+        parts: {
+          streetNumber: r.streetNumber ?? '',
+          street: r.street ?? '',
+          district: r.district ?? '',
+          subregion: r.subregion ?? '',
+        },
+      }
     }
   } catch {
     // fall through
   }
-  return { label: `${coord.latitude.toFixed(5)}, ${coord.longitude.toFixed(5)}`, city: '' }
+  return { label: `${coord.latitude.toFixed(5)}, ${coord.longitude.toFixed(5)}`, city: '', parts: emptyParts }
 }
 
 export default function LocationMapPicker({ visible, initial, onConfirm, onClose }: Props) {
@@ -50,6 +67,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
   })
   const [address, setAddress] = useState('')
   const [geocodedCity, setGeocodedCity] = useState('')
+  const [geocodedParts, setGeocodedParts] = useState<GeocodedParts>({ streetNumber: '', street: '', district: '', subregion: '' })
   const [geocoding, setGeocoding] = useState(false)
   const [locating, setLocating] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -60,7 +78,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
     const start = initial ?? { latitude: MANILA.latitude, longitude: MANILA.longitude }
     setCenter(start)
     setGeocoding(true)
-    reverseGeocode(start).then(({ label, city }) => { setAddress(label); setGeocodedCity(city); setGeocoding(false) })
+    reverseGeocode(start).then(({ label, city, parts }) => { setAddress(label); setGeocodedCity(city); setGeocodedParts(parts); setGeocoding(false) })
   }, [visible])
 
   function onRegionChange() {
@@ -82,7 +100,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
     ]).start()
     const coord = { latitude: region.latitude, longitude: region.longitude }
     setCenter(coord)
-    reverseGeocode(coord).then(({ label, city }) => { setAddress(label); setGeocodedCity(city); setGeocoding(false) })
+    reverseGeocode(coord).then(({ label, city, parts }) => { setAddress(label); setGeocodedCity(city); setGeocodedParts(parts); setGeocoding(false) })
   }
 
   async function goToMyLocation() {
@@ -244,7 +262,7 @@ export default function LocationMapPicker({ visible, initial, onConfirm, onClose
           </View>
 
           <TouchableOpacity
-            onPress={() => onConfirm(center, address, geocodedCity)}
+            onPress={() => onConfirm(center, address, geocodedCity, geocodedParts)}
             disabled={geocoding}
             style={{
               backgroundColor: geocoding ? '#e5e7eb' : Colors.primary,

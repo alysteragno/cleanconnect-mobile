@@ -35,15 +35,15 @@ Mapped directly to the capstone module table. Each item links to the file(s) tha
 | # | Feature | File(s) | Status |
 |---|---------|---------|--------|
 | 2.4.1 | View assigned jobs — list with Offers / Upcoming / Completed tabs | `app/(cleaner)/jobs/index.tsx` | ✅ Done |
-| 2.4.2 | Update job status — Accept/Decline on offer; Start/Complete on active job | `app/(cleaner)/jobs/[id].tsx`, `app/(cleaner)/jobs/active.tsx` | ✅ Done |
+| 2.4.2 | Update job status — Accept/Decline on offer; Start trip/Arrived/Complete on job detail | `app/(cleaner)/jobs/[id].tsx` | ✅ Done |
 
 ### 2.5 Module 2B — Geo-location & Geo-tagging Module
 
 | # | Feature | File(s) | Status |
 |---|---------|---------|--------|
 | 2.5.1 | Capture service location GPS on booking | `app/(customer)/bookings/new.tsx` (expo-location, saves service_lat/lng) | ✅ Done |
-| 2.5.2 | Geo-tag arrival validation — compare cleaner GPS to service_lat/lng, must be within 500m | `app/(cleaner)/jobs/active.tsx` (haversineDistance check) | ✅ Done |
-| 2.5.3 | Navigation to service location — opens Google Maps with GPS or address | `app/(cleaner)/jobs/[id].tsx` + `active.tsx` (Linking → maps URL) | ✅ Done |
+| 2.5.2 | Geo-tag arrival validation — compare cleaner GPS to service_lat/lng, must be within 500m | `app/(cleaner)/jobs/[id].tsx` (haversineDistance check) | ✅ Done |
+| 2.5.3 | Navigation to service location — opens map modal with GPS or address | `app/(cleaner)/jobs/[id].tsx` (JobLocationModal) | ✅ Done |
 
 ### 2.6 Module 2C — Availability Management Module
 

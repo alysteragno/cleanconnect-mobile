@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   StyleSheet,
   RefreshControl,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { Colors } from "@/constants/colors";
@@ -43,7 +43,7 @@ type JobOffer = {
     payment_status: string;
     special_notes: string | null;
     created_at: string;
-    customer: { full_name: string; phone: string | null } | null;
+    customer: { full_name: string } | null;
   };
 };
 
@@ -181,9 +181,11 @@ export default function CleanerHomeScreen() {
   const [mapOffer, setMapOffer] = useState<JobOffer | null>(null);
   const [photoMap, setPhotoMap] = useState<Record<string, string[]>>({});
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, []),
+  );
 
   async function loadData() {
     try {
@@ -215,7 +217,7 @@ export default function CleanerHomeScreen() {
               service_lat, service_lng,
               customer_id, status, created_at,
               payment_method, payment_status, special_notes,
-              customer:profiles!customer_id(full_name, phone)
+              customer:profiles!customer_id(full_name)
             )
           `,
             )
@@ -351,60 +353,92 @@ export default function CleanerHomeScreen() {
               </View>
             ) : (
               <View style={{ gap: 14 }}>
-                {offers.map((offer) => {
-                  const bk = offer.bookings;
-                  const isInProgress = bk?.status === "in_progress";
-
-                  return (
-                    <AssignedJobCard
-                      key={offer.id}
-                      serviceSlug={bk?.service_slug}
-                      serviceName={bk?.service_name}
-                      spaceType={bk?.space_type}
-                      serviceDate={bk?.service_date ?? ""}
-                      serviceTime={bk?.service_time ?? ""}
-                      basePrice={bk?.base_price ?? 0}
-                      propertySqm={bk?.property_sqm ?? 0}
-                      durationHours={bk?.duration_hours}
-                      paymentMethod={bk?.payment_method}
-                      addressUnit={bk?.address_unit}
-                      addressStreet={bk?.address_street}
-                      addressCity={bk?.address_city}
-                      serviceLatLng={
-                        bk?.service_lat && bk?.service_lng
-                          ? { lat: bk.service_lat, lng: bk.service_lng }
-                          : null
-                      }
-                      photos={photoMap[offer.booking_id] ?? []}
-                      customer={bk?.customer}
-                      bookedAt={bk?.created_at}
-                      onMapPress={() => setMapOffer(offer)}
-                      renderAction={() => (
-                        <TouchableOpacity
-                          style={[
-                            s.startBtn,
-                            isInProgress && { backgroundColor: "#7c3aed" },
-                          ]}
-                          onPress={() =>
-                            router.push({
-                              pathname: `/(cleaner)/jobs/${offer.id}` as any,
-                            })
-                          }
-                          activeOpacity={0.85}
-                        >
-                          <Feather
-                            name={isInProgress ? "activity" : "play-circle"}
-                            size={16}
-                            color="#fff"
-                          />
-                          <Text style={s.startBtnText}>
-                            {isInProgress ? "Resume Active Job" : "Start Job"}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                    />
+                {(() => {
+                  const hasActiveJob = offers.some(
+                    (o) => o.bookings?.status === "in_progress",
                   );
-                })}
+                  return offers.map((offer) => {
+                    const bk = offer.bookings;
+                    const isInProgress = bk?.status === "in_progress";
+                    const blocked = !isInProgress && hasActiveJob;
+
+                    return (
+                      <AssignedJobCard
+                        key={offer.id}
+                        serviceName={bk?.service_name}
+                        spaceType={bk?.space_type}
+                        serviceDate={bk?.service_date ?? ""}
+                        serviceTime={bk?.service_time ?? ""}
+                        basePrice={bk?.base_price ?? 0}
+                        propertySqm={bk?.property_sqm ?? 0}
+                        durationHours={bk?.duration_hours}
+                        paymentMethod={bk?.payment_method}
+                        addressUnit={bk?.address_unit}
+                        addressStreet={bk?.address_street}
+                        addressCity={bk?.address_city}
+                        serviceLatLng={
+                          bk?.service_lat && bk?.service_lng
+                            ? { lat: bk.service_lat, lng: bk.service_lng }
+                            : null
+                        }
+                        photos={photoMap[offer.booking_id] ?? []}
+                        customer={bk?.customer}
+                        bookedAt={bk?.created_at}
+                        onMapPress={() => setMapOffer(offer)}
+                        renderAction={() =>
+                          blocked ? (
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 8,
+                                backgroundColor: "#f1f5f9",
+                                borderRadius: 12,
+                                paddingVertical: 14,
+                                borderWidth: 1,
+                                borderColor: "#e2e8f0",
+                              }}
+                            >
+                              <Feather name="lock" size={15} color="#94a3b8" />
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: "700",
+                                  color: "#94a3b8",
+                                }}
+                              >
+                                Finish active job first
+                              </Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={[
+                                s.startBtn,
+                                isInProgress && { backgroundColor: "#7c3aed" },
+                              ]}
+                              onPress={() =>
+                                router.push({
+                                  pathname: `/(cleaner)/jobs/${offer.id}` as any,
+                                })
+                              }
+                              activeOpacity={0.85}
+                            >
+                              <Feather
+                                name={isInProgress ? "activity" : "play-circle"}
+                                size={16}
+                                color="#fff"
+                              />
+                              <Text style={s.startBtnText}>
+                                {isInProgress ? "Resume Active Job" : "Start Job"}
+                              </Text>
+                            </TouchableOpacity>
+                          )
+                        }
+                      />
+                    );
+                  });
+                })()}
               </View>
             )}
           </View>
@@ -430,6 +464,7 @@ export default function CleanerHomeScreen() {
             getService(mapOffer.bookings.service_slug ?? "")?.name ??
             "Cleaning Service"
           }
+          showDirections
           onClose={() => setMapOffer(null)}
         />
       )}

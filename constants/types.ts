@@ -81,5 +81,6 @@ export type Booking = {
   special_notes: string | null
   furniture_images: string[] | null
   started_at: string | null
+  cleaner_en_route_at: string | null
   created_at: string
 }

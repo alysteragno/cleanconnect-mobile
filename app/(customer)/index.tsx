@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, Easing, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, RefreshControl, Image, FlatList, useWindowDimensions } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, RefreshControl, Image, FlatList, useWindowDimensions } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -180,30 +180,8 @@ export default function CustomerHomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [serviceRatings, setServiceRatings] = useState<Record<string, { avg: number; count: number }>>({})
   const { groups: serviceGroups } = useServices()
-  const fabPulse = useRef(new Animated.Value(0)).current
-  const fabRing  = useRef(new Animated.Value(0)).current
 
   const cardWidth = (width - 40 - 12) / 2
-
-  useEffect(() => {
-    if (!inProgressBooking) return
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(fabPulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(fabPulse, { toValue: 0, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    )
-    const ring = Animated.loop(
-      Animated.sequence([
-        Animated.timing(fabRing, { toValue: 1, duration: 1100, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        Animated.timing(fabRing, { toValue: 0, duration: 0, useNativeDriver: true }),
-        Animated.delay(700),
-      ])
-    )
-    pulse.start()
-    ring.start()
-    return () => { pulse.stop(); ring.stop(); fabPulse.setValue(0); fabRing.setValue(0) }
-  }, [inProgressBooking])
 
   useEffect(() => { loadData() }, [])
 
@@ -367,26 +345,7 @@ export default function CustomerHomeScreen() {
       </ScrollView>
 
       {/* Floating Book Now / Resume button */}
-      <Animated.View
-        style={[
-          s.fabWrap,
-          !!inProgressBooking && {
-            transform: [{ scale: fabPulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.03, 1] }) }],
-          },
-        ]}
-      >
-        {!!inProgressBooking && (
-          <Animated.View
-            pointerEvents="none"
-            style={{
-              position: 'absolute', top: 0, bottom: 0, left: 0, right: 0,
-              borderRadius: 27,
-              backgroundColor: Colors.primary,
-              opacity: fabRing.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0.3, 0.1, 0] }),
-              transform: [{ scale: fabRing.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) }],
-            }}
-          />
-        )}
+      <View style={s.fabWrap}>
         <TouchableOpacity
           style={s.fab}
           onPress={() => router.push('/(customer)/bookings/new')}
@@ -395,7 +354,7 @@ export default function CustomerHomeScreen() {
           <Feather name={draft ? 'play' : 'plus'} size={18} color="#fff" />
           <Text style={s.fabText}>{draft ? 'Resume Booking' : 'Book a Service'}</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
     </View>
   )
 }

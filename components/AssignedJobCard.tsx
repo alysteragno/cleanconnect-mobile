@@ -76,7 +76,7 @@ type Props = {
   paymentMethod?: string | null
   serviceLatLng?: { lat: number; lng: number } | null
   photos?: string[]
-  customer?: { full_name: string; phone: string | null } | null
+  customer?: { full_name: string } | null
   bookedAt?: string | null
   onMapPress?: () => void
   renderAction?: () => React.ReactNode

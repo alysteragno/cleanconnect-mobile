@@ -59,8 +59,6 @@ export default function ServiceDetailScreen() {
 
   const [rating, setRating] = useState<{ avg: number; count: number } | null>(null)
   const [loadingRating, setLoadingRating] = useState(true)
-  const [activeBookingId, setActiveBookingId] = useState<string | null | undefined>(undefined)
-
   useEffect(() => {
     if (!svc) return
     supabase
@@ -75,19 +73,6 @@ export default function ServiceDetailScreen() {
       })
   }, [svc?.serviceType])
 
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { setActiveBookingId(null); return }
-      const { data } = await supabase
-        .from('bookings')
-        .select('id')
-        .eq('customer_id', user.id)
-        .not('status', 'in', '(completed,cancelled)')
-        .limit(1)
-        .maybeSingle()
-      setActiveBookingId(data?.id ?? null)
-    })
-  }, [])
 
   if (!svc) {
     return (
@@ -249,47 +234,28 @@ export default function ServiceDetailScreen() {
           </Text>
         </View>
 
-        {activeBookingId ? (
-          /* Has active booking — show disabled state with link to it */
-          <TouchableOpacity
-            style={{
-              flex: 2, height: 52, borderRadius: 14,
-              backgroundColor: C.borderLight,
-              flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            }}
-            activeOpacity={0.7}
-            onPress={() => router.push(`/(customer)/bookings/${activeBookingId}` as any)}
-          >
-            <Text style={{ color: C.textSecondary, fontWeight: '700', fontSize: 13 }}>Active Booking in Progress</Text>
-            <Text style={{ color: Colors.primary, fontWeight: '600', fontSize: 11, marginTop: 2 }}>Tap to view →</Text>
-          </TouchableOpacity>
-        ) : (
-          /* No active booking — normal Book button */
-          <TouchableOpacity
-            style={{
-              flex: 2, height: 52, borderRadius: 14,
-              backgroundColor: activeBookingId === undefined ? C.borderLight : Colors.primary,
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-              shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: activeBookingId === undefined ? 0 : 0.35,
-              shadowRadius: 10, elevation: activeBookingId === undefined ? 0 : 6,
-            }}
-            activeOpacity={0.85}
-            disabled={activeBookingId === undefined}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-              router.push({
-                pathname: '/(customer)/bookings/new',
-                params: { service: svc.slug },
-              })
-            }}
-          >
-            <Feather name="calendar" size={16} color={activeBookingId === undefined ? C.textMuted : '#fff'} />
-            <Text style={{ color: activeBookingId === undefined ? C.textMuted : '#fff', fontWeight: '700', fontSize: 15 }}>
-              Book This Service
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={{
+            flex: 2, height: 52, borderRadius: 14,
+            backgroundColor: Colors.primary,
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+            shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
+          }}
+          activeOpacity={0.85}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            router.push({
+              pathname: '/(customer)/bookings/new',
+              params: { service: svc.slug },
+            })
+          }}
+        >
+          <Feather name="calendar" size={16} color="#fff" />
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>
+            Book This Service
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
   )

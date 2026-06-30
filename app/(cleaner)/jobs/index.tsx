@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
-  View, Text, TouchableOpacity, FlatList, Image,
-  ScrollView, ActivityIndicator, RefreshControl,
+  View, Text, FlatList, Image,
+  ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
@@ -33,7 +33,7 @@ type Assignment = {
     payment_method: string
     payment_status: string
     created_at: string
-    customer: { full_name: string; phone: string | null } | null
+    customer: { full_name: string } | null
   }
 }
 
@@ -44,11 +44,6 @@ const PAYMENT_LABELS: Record<string, string> = {
   bank_transfer: 'Bank Transfer',
   bank_check:    'Bank Check',
 }
-
-const FILTER_TABS = [
-  { key: 'assigned', label: 'Upcoming' },
-  { key: 'completed', label: 'Completed' },
-]
 
 function formatDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-PH', {
@@ -68,7 +63,6 @@ export default function CleanerJobsScreen() {
   const [feedbackMap, setFeedbackMap] = useState<Record<string, { rating: number; comment: string | null }>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [activeFilter, setActiveFilter] = useState<string>('assigned')
   const [unreadCount, setUnreadCount] = useState(0)
 
   useFocusEffect(useCallback(() => { loadJobs() }, []))
@@ -86,13 +80,12 @@ export default function CleanerJobsScreen() {
             service_slug, service_name, service_date, service_time, property_sqm,
             base_price, duration_hours, address_unit, address_street, address_city,
             address_province, status, payment_method, payment_status, created_at,
-            customer:profiles!customer_id(full_name, phone)
+            customer:profiles!customer_id(full_name)
           )
         `)
         .eq('cleaner_id', user.id)
-        .in('status', ['assigned', 'completed'])
-        .order('assigned_at', { ascending: false })
-        .order('service_date', { referencedTable: 'bookings', ascending: true }),
+        .eq('status', 'completed')
+        .order('assigned_at', { ascending: false }),
       supabase
         .from('feedback')
         .select('booking_id, rating, comment'),
@@ -113,13 +106,6 @@ export default function CleanerJobsScreen() {
     setRefreshing(false)
   }
 
-  const filtered = useMemo(() => {
-    const isCompleted = (a: Assignment) =>
-      a.status === 'completed' || a.bookings?.status === 'completed'
-    if (activeFilter === 'completed') return assignments.filter(isCompleted)
-    return assignments.filter(a => !isCompleted(a))
-  }, [assignments, activeFilter])
-
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
@@ -131,42 +117,13 @@ export default function CleanerJobsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader
-        title="My Jobs"
+        title="Job History"
         unreadCount={unreadCount}
         onBellPress={() => router.push('/(cleaner)/notifications')}
       />
 
-      <View style={{ backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.border }}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
-        >
-          {FILTER_TABS.map(tab => (
-            <TouchableOpacity
-              key={tab.key}
-              onPress={() => setActiveFilter(tab.key)}
-              style={{
-                paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
-                backgroundColor: activeFilter === tab.key ? Colors.primary : C.white,
-                borderWidth: 1,
-                borderColor: activeFilter === tab.key ? Colors.primary : C.border,
-              }}
-            >
-              <Text style={{
-                fontSize: 13, fontWeight: '600',
-                color: activeFilter === tab.key ? '#fff' : C.textSecondary,
-              }}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-      </View>
-
       <FlatList
-        data={filtered}
+        data={assignments}
         keyExtractor={item => item.id}
         contentContainerStyle={{ padding: 16, gap: 14 }}
         refreshControl={
@@ -185,7 +142,7 @@ export default function CleanerJobsScreen() {
           }}>
             <Feather name="briefcase" size={32} color={C.textMuted} style={{ marginBottom: 8 }} />
             <Text style={{ color: C.text, fontWeight: '600', textAlign: 'center' }}>
-              {activeFilter === 'assigned' ? 'No upcoming jobs' : 'No completed jobs'}
+              No completed jobs
             </Text>
             <Text style={{ color: C.textMuted, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
               Check back later.
@@ -195,8 +152,6 @@ export default function CleanerJobsScreen() {
         renderItem={({ item }) => {
           const svc = getService(item.bookings?.service_slug ?? '')
           const b = item.bookings
-          const isCompleted = item.status === 'completed' || b?.status === 'completed'
-          const isInProgress = b?.status === 'in_progress'
           const address = [b?.address_unit, b?.address_street, b?.address_city, b?.address_province]
             .filter(Boolean).join(', ')
           const fb = feedbackMap[item.booking_id]
@@ -232,17 +187,11 @@ export default function CleanerJobsScreen() {
                 <View style={{
                   flexDirection: 'row', alignItems: 'center', gap: 6,
                   paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99,
-                  backgroundColor: isCompleted ? '#dcfce7' : isInProgress ? '#ede9fe' : Colors.primary + '15',
+                  backgroundColor: '#dcfce7',
                 }}>
-                  <View style={{
-                    width: 6, height: 6, borderRadius: 3,
-                    backgroundColor: isCompleted ? '#16a34a' : isInProgress ? '#7c3aed' : Colors.primary,
-                  }} />
-                  <Text style={{
-                    fontSize: 11, fontWeight: '700',
-                    color: isCompleted ? '#16a34a' : isInProgress ? '#7c3aed' : Colors.primary,
-                  }}>
-                    {isCompleted ? 'Completed' : isInProgress ? 'In Progress' : 'Upcoming'}
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#16a34a' }} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#16a34a' }}>
+                    Completed
                   </Text>
                 </View>
                 <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>
@@ -289,73 +238,45 @@ export default function CleanerJobsScreen() {
               {/* Customer info */}
               <CustomerInfoCard customer={b?.customer} bookedAt={b?.created_at} />
 
-              {/* Feedback banner (completed only) */}
-              {isCompleted && (() => {
-                return fb ? (
-                  <View style={{
-                    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
-                    backgroundColor: '#f0fdf4', borderRadius: 12, borderWidth: 1,
-                    borderColor: '#86efac', paddingHorizontal: 14, paddingVertical: 10, gap: 4,
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <View style={{ flexDirection: 'row', gap: 3 }}>
-                        {[1,2,3,4,5].map(n => (
-                          <Feather key={n} name="star" size={15} color={n <= fb.rating ? '#f59e0b' : '#d1d5db'} />
-                        ))}
-                      </View>
-                      <Text style={{ fontSize: 12, color: '#15803d', fontWeight: '700' }}>
-                        {fb.rating}/5 · Customer reviewed
-                      </Text>
-                    </View>
-                    {fb.comment ? (
-                      <Text style={{ fontSize: 12, color: '#166534', fontStyle: 'italic' }} numberOfLines={2}>
-                        "{fb.comment}"
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View style={{
-                    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
-                    backgroundColor: '#fffbeb', borderRadius: 12, borderWidth: 1,
-                    borderColor: '#fcd34d', paddingHorizontal: 14, paddingVertical: 10,
-                    flexDirection: 'row', alignItems: 'center', gap: 10,
-                  }}>
+              {/* Feedback banner */}
+              {fb ? (
+                <View style={{
+                  marginHorizontal: 16, marginTop: 12, marginBottom: 16,
+                  backgroundColor: '#f0fdf4', borderRadius: 12, borderWidth: 1,
+                  borderColor: '#86efac', paddingHorizontal: 14, paddingVertical: 10, gap: 4,
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <View style={{ flexDirection: 'row', gap: 3 }}>
                       {[1,2,3,4,5].map(n => (
-                        <Feather key={n} name="star" size={15} color="#fde68a" />
+                        <Feather key={n} name="star" size={15} color={n <= fb.rating ? '#f59e0b' : '#d1d5db'} />
                       ))}
                     </View>
-                    <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>
-                      Waiting for customer review
+                    <Text style={{ fontSize: 12, color: '#15803d', fontWeight: '700' }}>
+                      {fb.rating}/5 · Customer reviewed
                     </Text>
                   </View>
-                )
-              })()}
-
-              {/* Divider + action button (upcoming/in-progress only) */}
-              {!isCompleted && (
-                <>
-                  <View style={{ height: 1, backgroundColor: C.borderLight, marginTop: 12 }} />
-                  <TouchableOpacity
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      paddingVertical: 14,
-                      backgroundColor: isInProgress ? '#7c3aed' : Colors.primary,
-                    }}
-                    onPress={() => router.push({
-                      pathname: `/(cleaner)/jobs/${item.id}` as any,
-                    })}
-                  >
-                    <Feather
-                      name={isInProgress ? 'activity' : 'play-circle'}
-                      size={15}
-                      color="#fff"
-                    />
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>
-                      {isInProgress ? 'Resume Job' : 'Start Job'}
+                  {fb.comment ? (
+                    <Text style={{ fontSize: 12, color: '#166534', fontStyle: 'italic' }} numberOfLines={2}>
+                      "{fb.comment}"
                     </Text>
-                  </TouchableOpacity>
-                </>
+                  ) : null}
+                </View>
+              ) : (
+                <View style={{
+                  marginHorizontal: 16, marginTop: 12, marginBottom: 16,
+                  backgroundColor: '#fffbeb', borderRadius: 12, borderWidth: 1,
+                  borderColor: '#fcd34d', paddingHorizontal: 14, paddingVertical: 10,
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                }}>
+                  <View style={{ flexDirection: 'row', gap: 3 }}>
+                    {[1,2,3,4,5].map(n => (
+                      <Feather key={n} name="star" size={15} color="#fde68a" />
+                    ))}
+                  </View>
+                  <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>
+                    Waiting for customer review
+                  </Text>
+                </View>
               )}
             </View>
           )

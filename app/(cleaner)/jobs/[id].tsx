@@ -59,9 +59,10 @@ type Booking = {
   payment_method: string;
   payment_status: string;
   started_at: string | null;
+  cleaner_en_route_at: string | null;
   customer_id: string | null;
   created_at: string | null;
-  customer: { full_name: string; phone: string | null } | null;
+  customer: { full_name: string } | null;
 };
 
 type Assignment = {
@@ -117,8 +118,8 @@ export default function JobDetailScreen() {
           service_name, service_slug, space_type, service_date, service_time, property_sqm,
           base_price, duration_hours, address_unit, address_street, address_city,
           address_province, service_lat, service_lng, special_notes, status, created_at,
-          payment_method, payment_status, started_at, customer_id,
-          customer:profiles!customer_id(full_name, phone)
+          payment_method, payment_status, started_at, cleaner_en_route_at, customer_id,
+          customer:profiles!customer_id(full_name)
         )
       `,
       )
@@ -133,6 +134,7 @@ export default function JobDetailScreen() {
       const isInProgress = b.status === "in_progress";
       const isCompleted =
         b.status === "completed" || data.status === "completed";
+      if (b.cleaner_en_route_at) setTripStarted(true);
       if (isInProgress) {
         setTripStarted(true);
         setArrived(true);
@@ -168,7 +170,21 @@ export default function JobDetailScreen() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || !assignment) return;
+
+      const nowIso = new Date().toISOString();
+      const { error: bookingErr, data: bookingData } = await supabase
+        .from("bookings")
+        .update({ cleaner_en_route_at: nowIso })
+        .eq("id", assignment.booking_id)
+        .select();
+      if (bookingErr || !bookingData || bookingData.length === 0) {
+        throw (
+          bookingErr ??
+          new Error("Could not save your starting location. Please try again.")
+        );
+      }
+
       await supabase
         .from("profiles")
         .update({
@@ -176,9 +192,15 @@ export default function JobDetailScreen() {
           home_lng: loc.coords.longitude,
         })
         .eq("id", user.id);
+
+      setAssignment((prev) =>
+        prev
+          ? { ...prev, bookings: { ...prev.bookings, cleaner_en_route_at: nowIso } }
+          : prev,
+      );
       setTripStarted(true);
-    } catch {
-      Alert.alert("Error", "Could not get your location. Please try again.");
+    } catch (err: any) {
+      Alert.alert("Error", err?.message ?? "Could not get your location. Please try again.");
     }
   }
 
@@ -221,30 +243,40 @@ export default function JobDetailScreen() {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
-        const { data: activeJob } = await supabase
+        const { data: otherAssignments } = await supabase
           .from("cleaner_assignments")
-          .select("id, bookings!inner(status)")
+          .select("booking_id")
           .eq("cleaner_id", user.id)
-          .eq("bookings.status", "in_progress")
-          .neq("id", assignment.id)
-          .limit(1)
-          .maybeSingle();
-        if (activeJob) {
-          Alert.alert(
-            "Job Already In Progress",
-            "You already have another job in progress. Complete it before starting a new one.",
-            [{ text: "OK" }],
-          );
-          return;
+          .neq("id", assignment.id);
+        const bookingIds = (otherAssignments ?? []).map((a: any) => a.booking_id);
+        if (bookingIds.length > 0) {
+          const { data: activeBookings } = await supabase
+            .from("bookings")
+            .select("id")
+            .in("id", bookingIds)
+            .eq("status", "in_progress")
+            .limit(1);
+          if ((activeBookings ?? []).length > 0) {
+            Alert.alert(
+              "Job Already In Progress",
+              "You already have another job in progress. Complete it before starting a new one.",
+              [{ text: "OK" }],
+            );
+            return;
+          }
         }
       }
 
       const now = new Date().toISOString();
-      const { error } = await supabase
+      const { error, data: bookingData } = await supabase
         .from("bookings")
         .update({ status: "in_progress", started_at: now })
-        .eq("id", assignment.booking_id);
+        .eq("id", assignment.booking_id)
+        .select();
       if (error) throw error;
+      if (!bookingData || bookingData.length === 0) {
+        throw new Error("Could not start the job — the booking may no longer be assigned to you.");
+      }
 
       if (b.customer_id) {
         const {
@@ -788,6 +820,7 @@ export default function JobDetailScreen() {
           coord={{ latitude: b.service_lat, longitude: b.service_lng }}
           address={fullAddress !== "—" ? fullAddress : undefined}
           serviceLabel={b.service_name ?? "Service Location"}
+          showDirections
           onClose={() => setShowMapModal(false)}
         />
       )}

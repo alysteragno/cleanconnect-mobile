@@ -1,11 +1,10 @@
 import { useEffect, useRef } from 'react'
-import { View, Text, TouchableOpacity, Linking, Animated, Easing } from 'react-native'
-import { Feather } from '@expo/vector-icons'
+import { View, Text, Animated, Easing } from 'react-native'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 
 type Props = {
-  customer: { full_name: string; phone: string | null } | null | undefined
+  customer: { full_name: string } | null | undefined
   bookedAt: string | null | undefined
 }
 
@@ -63,29 +62,12 @@ export default function CustomerInfoCard({ customer, bookedAt }: Props) {
 
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{customer.full_name}</Text>
-          {customer.phone && (
-            <Text style={{ fontSize: 12, color: '#16a34a', fontWeight: '600' }}>{customer.phone}</Text>
-          )}
           {bookedAt && (
             <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>
               Booked {fmtBookedOn(bookedAt)}
             </Text>
           )}
         </View>
-
-        {customer.phone && (
-          <TouchableOpacity
-            onPress={() => Linking.openURL(`tel:${customer.phone}`)}
-            activeOpacity={0.7}
-            style={{
-              width: 40, height: 40, borderRadius: 20,
-              backgroundColor: '#dcfce7',
-              alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            <Feather name="phone" size={17} color="#16a34a" />
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   )

@@ -24,12 +24,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import * as MediaLibrary from 'expo-media-library'
 import * as ImageManipulator from 'expo-image-manipulator'
 
-const SPACE_IMAGES: Record<string, any> = {
-  residential: require('@/assets/services/residential_cleaning.webp'),
-  commercial:  require('@/assets/services/residential_cleaning.webp'),
-  condo:       require('@/assets/services/condo_cleaning.jpeg'),
-  office:      require('@/assets/services/office_cleaning.webp'),
-}
+
 
 // ─── Wallet helpers ──────────────────────────────────────────────────────────
 
@@ -449,6 +444,7 @@ export default function NewBookingScreen() {
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
   const defaultTime = useRef((() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d })()).current
   const [currentServiceSlug, setCurrentServiceSlug] = useState<string | undefined>(serviceSlug)
+  const mountedSlugRef = useRef(serviceSlug)
   const [showMap, setShowMap] = useState(false)
   const [showCityPicker, setShowCityPicker] = useState(false)
   const [step2Visited, setStep2Visited] = useState(false)
@@ -536,6 +532,25 @@ export default function NewBookingScreen() {
     }
     init()
   }, [])
+
+  // If the component instance is reused with a different service slug (Expo Router
+  // Tabs+Stack edge case), reset the form so the new service is shown correctly.
+  useEffect(() => {
+    if (mountedSlugRef.current === serviceSlug) return
+    mountedSlugRef.current = serviceSlug
+    setCurrentServiceSlug(serviceSlug)
+    setForm({
+      ...INITIAL_FORM,
+      ...(serviceSlug && SERVICE_SLUG_TO_TYPE[serviceSlug]
+        ? { service_type: SERVICE_SLUG_TO_TYPE[serviceSlug] }
+        : {}),
+    })
+    setStep(1)
+    setAgreedToTerms(false)
+    setTermsExpanded(false)
+    draftCleared.current = false
+    draftLoaded.current = true
+  }, [serviceSlug])
 
   useEffect(() => {
     if (!draftLoaded.current || draftCleared.current) return
@@ -702,7 +717,8 @@ export default function NewBookingScreen() {
       .eq('customer_id', user.id)
       .eq('service_date', toDateString(form.service_date!))
       .eq('service_time', toTimeString(form.service_time!))
-      .not('status', 'in', '(completed,cancelled)')
+      .neq('status', 'completed')
+      .neq('status', 'cancelled')
       .limit(1)
       .maybeSingle()
     if (conflict?.id) {
@@ -960,40 +976,33 @@ export default function NewBookingScreen() {
                   shadowRadius: 10,
                   elevation: 3,
                 }}>
-                  {(() => {
-                    const spaceImg = SPACE_IMAGES[form.space_type ?? ''] ?? svcDef.image
-                    return spaceImg ? (
-                      <View>
-                        <Image
-                          source={spaceImg}
-                          style={{ width: '100%', height: 170 }}
-                          resizeMode="cover"
-                        />
-                        <View style={{
-                          position: 'absolute', top: 12, left: 12,
-                          backgroundColor: svcDef.accent + 'DD',
-                          borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
-                        }}>
-                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
-                            {svcDef.category.toUpperCase()}
-                          </Text>
-                        </View>
+                  {svcDef.image ? (
+                    <View>
+                      <Image source={svcDef.image} style={{ width: '100%', height: 170 }} resizeMode="cover" />
+                      <View style={{
+                        position: 'absolute', top: 12, left: 12,
+                        backgroundColor: svcDef.accent + 'DD',
+                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
+                      }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
+                          {svcDef.category.toUpperCase()}
+                        </Text>
                       </View>
-                    ) : (
-                      <View style={{ width: '100%', height: 110, backgroundColor: svcDef.placeholderBg, alignItems: 'center', justifyContent: 'center' }}>
-                        <Feather name={svcDef.placeholderIcon as any} size={44} color={svcDef.placeholderIconColor} style={{ opacity: 0.35 }} />
-                        <View style={{
-                          position: 'absolute', top: 12, left: 12,
-                          backgroundColor: svcDef.accent + 'DD',
-                          borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
-                        }}>
-                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
-                            {svcDef.category.toUpperCase()}
-                          </Text>
-                        </View>
+                    </View>
+                  ) : (
+                    <View style={{ width: '100%', height: 110, backgroundColor: svcDef.placeholderBg, alignItems: 'center', justifyContent: 'center' }}>
+                      <Feather name={svcDef.placeholderIcon as any} size={44} color={svcDef.placeholderIconColor} style={{ opacity: 0.35 }} />
+                      <View style={{
+                        position: 'absolute', top: 12, left: 12,
+                        backgroundColor: svcDef.accent + 'DD',
+                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
+                      }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 }}>
+                          {svcDef.category.toUpperCase()}
+                        </Text>
                       </View>
-                    )
-                  })()}
+                    </View>
+                  )}
                   <View style={{ padding: 16, gap: 6 }}>
                     <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.3 }}>{svcDef.name}</Text>
                     <Text style={{ fontSize: 12, color: C.textSecondary, lineHeight: 18 }}>{svcDef.desc}</Text>
@@ -1294,15 +1303,19 @@ export default function NewBookingScreen() {
             <LocationMapPicker
               visible={showMap}
               initial={form.service_lat ? { latitude: form.service_lat, longitude: form.service_lng! } : null}
-              onConfirm={(coord, address, geocodedCity) => {
-                update('service_lat', coord.latitude)
-                update('service_lng', coord.longitude)
-                update('service_address_label', address)
+              onConfirm={(coord, address, geocodedCity, parts) => {
                 const matched = matchMetroManilaCity(geocodedCity)
-                if (matched && !form.address_city) {
-                  update('address_city', matched)
-                  update('address_province', 'Metro Manila')
-                }
+                setForm(f => ({
+                  ...f,
+                  service_lat: coord.latitude,
+                  service_lng: coord.longitude,
+                  service_address_label: address,
+
+                  address_street: parts.street || f.address_street,
+                  address_barangay: parts.district || f.address_barangay,
+                  address_city: matched || f.address_city,
+                  address_province: matched ? 'Metro Manila' : (parts.subregion || f.address_province),
+                }))
                 setShowMap(false)
               }}
               onClose={() => setShowMap(false)}
@@ -1393,7 +1406,7 @@ export default function NewBookingScreen() {
             {(() => {
               const svcDef    = getService(currentServiceSlug ?? '')
               const svcName   = svcDef?.name ?? SERVICE_LABELS[form.service_type!]
-              const svcImage  = SPACE_IMAGES[form.space_type ?? ''] ?? null
+              const svcImage  = svcDef?.image ?? null
               const svcAccent = svcDef?.accent ?? Colors.primary
               const svcCat    = (svcDef?.category ?? '').toUpperCase()
               const svcIcon   = (svcDef?.placeholderIcon ?? 'home') as React.ComponentProps<typeof Feather>['name']

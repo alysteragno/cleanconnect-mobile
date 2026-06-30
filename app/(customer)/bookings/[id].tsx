@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView,
-  ActivityIndicator, TextInput, Alert, RefreshControl, Image, Linking, Platform, Animated,
+  ActivityIndicator, TextInput, Alert, RefreshControl, Image, Platform, Animated,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
+import MapView, { Marker, PROVIDER_GOOGLE, PROVIDER_DEFAULT } from 'react-native-maps'
+import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
+import JobLocationModal from '@/components/JobLocationModal'
 import {
   Booking, BookingStatus, Feedback,
   STATUS_LABELS,
@@ -72,12 +74,6 @@ function fmtEta(min: number) {
   return m > 0 ? `~${h}h ${m}m` : `~${h}h`
 }
 
-function starIcon(n: number, avg: number): 'star' | 'star-half' | 'star-outline' {
-  if (avg >= n) return 'star'
-  if (avg > n - 0.75) return 'star-half'
-  return 'star-outline'
-}
-
 function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-PH', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -112,10 +108,10 @@ export default function BookingDetailScreen() {
   const [comment,          setComment]          = useState('')
   const [submitting,       setSubmitting]       = useState(false)
   const [refreshing,       setRefreshing]       = useState(false)
+  const [cleanerMapModal, setCleanerMapModal] = useState<{ lat: number; lng: number; name: string | null; address: string } | null>(null)
   const [assignedCleaners, setAssignedCleaners] = useState<Array<{
     id: string
     name: string | null
-    stats: { avg: number; count: number } | null
     eta: { distKm: number; etaMin: number } | null
     location: { lat: number; lng: number } | null
   }>>([])
@@ -147,6 +143,7 @@ export default function BookingDetailScreen() {
     const t = setTimeout(() => router.replace('/(customer)/' as any), 3000)
     return () => clearTimeout(t)
   }, [deleted])
+
 
   async function load() {
     const { data: bk } = await supabase
@@ -181,19 +178,14 @@ export default function BookingDetailScreen() {
 
     if (assignedIds.length > 0) {
       const cleaners = await Promise.all(assignedIds.map(async (cId) => {
-        const [{ data: ratings }, { data: profile }] = await Promise.all([
-          supabase.from('feedback').select('rating').eq('cleaner_id', cId),
-          supabase.from('profiles').select('full_name, home_lat, home_lng').eq('id', cId).maybeSingle(),
-        ])
-        const sum = ratings?.reduce((s: number, r: { rating: number }) => s + r.rating, 0) ?? 0
-        const stats = ratings && ratings.length > 0 ? { avg: sum / ratings.length, count: ratings.length } : null
+        const { data: profile } = await supabase.from('profiles').select('full_name, home_lat, home_lng').eq('id', cId).maybeSingle()
         const cLat = (profile as any)?.home_lat
         const cLng = (profile as any)?.home_lng
         const location = cLat && cLng ? { lat: cLat, lng: cLng } : null
         const eta = location && bk.service_lat && bk.service_lng
           ? (() => { const d = haversineKm(cLat, cLng, bk.service_lat, bk.service_lng); return { distKm: d, etaMin: Math.round(d / 30 * 60) } })()
           : null
-        return { id: cId, name: (profile as any)?.full_name ?? null, stats, eta, location }
+        return { id: cId, name: (profile as any)?.full_name ?? null, eta, location }
       }))
       setAssignedCleaners(cleaners)
     } else {
@@ -396,6 +388,7 @@ export default function BookingDetailScreen() {
           </View>
         )}
 
+
 {/* ── Payment ── */}
         <View style={{
           marginHorizontal: 16, marginBottom: 14,
@@ -474,11 +467,11 @@ export default function BookingDetailScreen() {
                   {[booking.address_city, booking.address_province].filter(Boolean).join(', ')}
                 </Text>
               </View>
-              {booking.service_lat ? (
+              {booking.address_barangay ? (
                 <View>
-                  <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 3 }}>GPS Coordinates</Text>
+                  <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 3 }}>Barangay</Text>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>
-                    {booking.service_lat.toFixed(5)}, {booking.service_lng!.toFixed(5)}
+                    {booking.address_barangay}
                   </Text>
                 </View>
               ) : null}
@@ -508,18 +501,6 @@ export default function BookingDetailScreen() {
                   Assigned Cleaner
                 </Text>
                 <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.3 }}>{cleaner.name ?? 'Unknown'}</Text>
-                {cleaner.stats ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                    {[1, 2, 3, 4, 5].map(n => (
-                      <Ionicons key={n} name={starIcon(n, cleaner.stats!.avg)} size={12} color="#f59e0b" />
-                    ))}
-                    <Text style={{ fontSize: 11, color: C.textSecondary, marginLeft: 2 }}>
-                      {cleaner.stats.avg.toFixed(1)} ({cleaner.stats.count})
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>No reviews yet</Text>
-                )}
               </View>
               <View style={{ backgroundColor: '#fdf2f8', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: '#fbcfe8' }}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary }}>✓ Assigned</Text>
@@ -557,113 +538,71 @@ export default function BookingDetailScreen() {
                   </View>
                 )}
 
-                {/* Platform Maps card — Grab-style */}
+                {/* Cleaner is on the way — shown once location is tagged, before arrival */}
+                {booking.status === 'confirmed' && cleaner.location && (
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 10,
+                    backgroundColor: '#eff6ff', borderRadius: 12, padding: 12,
+                    borderWidth: 1, borderColor: '#bfdbfe',
+                  }}>
+                    <Feather name="navigation" size={15} color="#1d4ed8" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#1e40af' }}>
+                        Cleaner is on the way
+                      </Text>
+                      <Text style={{ fontSize: 11, color: '#3b82f6', marginTop: 1 }}>
+                        {cleaner.name?.split(' ')[0] ?? 'Your cleaner'} has tagged their location
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Cleaner location — inline map + opens full-screen modal on tap */}
                 {cleaner.location ? (
                   <TouchableOpacity
-                    onPress={() => {
-                      const { lat, lng } = cleaner.location!
-                      const url = Platform.OS === 'ios'
-                        ? `maps://?ll=${lat},${lng}&q=Cleaner's%20Starting%20Point`
-                        : `https://maps.google.com/?q=${lat},${lng}`
-                      Linking.openURL(url)
-                    }}
+                    onPress={() => setCleanerMapModal({ ...cleaner.location!, name: cleaner.name, address: 'Cleaner\'s Location' })}
                     activeOpacity={0.88}
-                    style={{
-                      borderRadius: 18, overflow: 'hidden',
-                      shadowColor: Platform.OS === 'ios' ? '#0d47a1' : '#b71c1c',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.18, shadowRadius: 10, elevation: 5,
-                    }}
+                    style={{ borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: C.border }}
                   >
-                    {/* Branded header */}
+                    <MapView
+                      provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
+                      style={{ height: 120 }}
+                      region={{
+                        latitude: cleaner.location.lat,
+                        longitude: cleaner.location.lng,
+                        latitudeDelta: 0.008,
+                        longitudeDelta: 0.008,
+                      }}
+                      scrollEnabled={false}
+                      zoomEnabled={false}
+                      rotateEnabled={false}
+                      pitchEnabled={false}
+                      pointerEvents="none"
+                    >
+                      <Marker
+                        coordinate={{ latitude: cleaner.location.lat, longitude: cleaner.location.lng }}
+                        pinColor={Colors.primary}
+                      />
+                    </MapView>
                     <View style={{
-                      backgroundColor: Platform.OS === 'ios' ? '#0d47a1' : '#c62828',
-                      paddingVertical: 16, paddingHorizontal: 18,
-                      flexDirection: 'row', alignItems: 'center', gap: 14,
+                      flexDirection: 'row', alignItems: 'center', gap: 12,
+                      backgroundColor: C.white, paddingVertical: 11, paddingHorizontal: 14,
                     }}>
-                      {/* App icon */}
                       <View style={{
-                        width: 52, height: 52, borderRadius: 15,
-                        backgroundColor: 'rgba(255,255,255,0.15)',
-                        alignItems: 'center', justifyContent: 'center',
-                        borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)',
+                        width: 34, height: 34, borderRadius: 17,
+                        backgroundColor: '#fce7f3', alignItems: 'center', justifyContent: 'center',
                       }}>
-                        {Platform.OS === 'ios'
-                          ? <MaterialCommunityIcons name="apple" size={28} color="#fff" />
-                          : <MaterialCommunityIcons name="google-maps" size={28} color="#fff" />
-                        }
+                        <Feather name="map-pin" size={16} color={Colors.primary} />
                       </View>
-
                       <View style={{ flex: 1 }}>
-                        {/* App badge pill */}
-                        <View style={{
-                          alignSelf: 'flex-start',
-                          backgroundColor: 'rgba(255,255,255,0.18)',
-                          borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3,
-                          borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
-                          marginBottom: 5,
-                        }}>
-                          <Text style={{ fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.92)', letterSpacing: 0.8, textTransform: 'uppercase' }}>
-                            {Platform.OS === 'ios' ? 'Apple Maps' : 'Google Maps'}
-                          </Text>
-                        </View>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>
                           View Cleaner's Location
                         </Text>
-                        <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', marginTop: 2 }}>
-                          See where your cleaner starts from
+                        <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>
+                          Tap to view on map
                         </Text>
                       </View>
-
-                      {/* Open button */}
-                      <View style={{
-                        width: 38, height: 38, borderRadius: 19,
-                        backgroundColor: 'rgba(255,255,255,0.18)',
-                        alignItems: 'center', justifyContent: 'center',
-                        borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
-                      }}>
-                        <Feather name="external-link" size={16} color="#fff" />
-                      </View>
-                    </View>
-
-                    {/* Coordinates info row */}
-                    <View style={{
-                      backgroundColor: C.white,
-                      paddingVertical: 12, paddingHorizontal: 16,
-                      flexDirection: 'row', alignItems: 'center', gap: 10,
-                      borderTopWidth: 0,
-                    }}>
-                      <View style={{
-                        width: 30, height: 30, borderRadius: 9,
-                        backgroundColor: Platform.OS === 'ios' ? '#e8f0fc' : '#fce8e6',
-                        alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <Feather
-                          name="crosshair"
-                          size={13}
-                          color={Platform.OS === 'ios' ? '#0d47a1' : '#c62828'}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.text }}>
-                          Starting point
-                        </Text>
-                        <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 1, fontVariant: ['tabular-nums'] }}>
-                          {cleaner.location.lat.toFixed(5)}, {cleaner.location.lng.toFixed(5)}
-                        </Text>
-                      </View>
-                      <View style={{
-                        backgroundColor: Platform.OS === 'ios' ? '#e8f0fc' : '#fce8e6',
-                        borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4,
-                      }}>
-                        <Text style={{
-                          fontSize: 10, fontWeight: '700',
-                          color: Platform.OS === 'ios' ? '#0d47a1' : '#c62828',
-                          letterSpacing: 0.3,
-                        }}>
-                          {Platform.OS === 'ios' ? 'Apple Maps' : '📍 Google Maps'}
-                        </Text>
-                      </View>
+                      <Feather name="chevron-right" size={16} color={C.textMuted} />
                     </View>
                   </TouchableOpacity>
                 ) : (
@@ -754,6 +693,17 @@ export default function BookingDetailScreen() {
         )}
 
       </ScrollView>
+
+      {cleanerMapModal && (
+        <JobLocationModal
+          visible
+          coord={{ latitude: cleanerMapModal.lat, longitude: cleanerMapModal.lng }}
+          serviceLabel={cleanerMapModal.name ?? 'Cleaner'}
+          panelLabel="CLEANER LOCATION"
+          address={cleanerMapModal.address}
+          onClose={() => setCleanerMapModal(null)}
+        />
+      )}
     </View>
   )
 }
