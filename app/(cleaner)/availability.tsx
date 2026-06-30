@@ -10,14 +10,14 @@ import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
-import { SERVICE_LABELS, ServiceType } from '@/constants/types'
+import { getService } from '@/constants/services'
 import AppHeader from '@/components/AppHeader'
 
 type ScheduleItem = {
   id: string
   booking_id: string
   bookings: {
-    service_type: ServiceType
+    service_slug: string
     service_date: string
     service_time: string
     property_sqm: number
@@ -129,7 +129,8 @@ function CalendarGrid({
             const isMarked   = markedDates.has(dateStr)
             const isPast     = dateStr < today
             const hasRequest = pendingDates.has(dateStr) || approvedDates.has(dateStr) || rejectedDates.has(dateStr)
-            const canTap     = mode === 'dayoffs' ? (dateStr >= tomorrow || hasRequest) : true
+            const isSunday   = new Date(dateStr + 'T00:00:00').getDay() === 0
+            const canTap     = mode === 'dayoffs' ? (hasRequest || (!isSunday && dateStr >= tomorrow)) : true
 
             let circleBg = 'transparent'
             let dayColor: string = isPast && !isToday ? C.textMuted : C.text
@@ -152,7 +153,7 @@ function CalendarGrid({
                 dayColor = C.textMuted; dayWeight = '400'
               } else if (isToday) {
                 circleBg = Colors.primary + '25'; dayColor = Colors.primary; dayWeight = '700'
-              } else if (isPast) {
+              } else if (isPast || isSunday) {
                 dayColor = C.textMuted; dayWeight = '400'
               }
             }
@@ -369,7 +370,7 @@ export default function CleanerScheduleScreen() {
     if (!user) return
     const { data } = await supabase
       .from('cleaner_assignments')
-      .select(`id, booking_id, bookings (service_type, service_date, service_time, property_sqm, address_city, status)`)
+      .select(`id, booking_id, bookings (service_slug, service_date, service_time, property_sqm, address_city, status)`)
       .eq('cleaner_id', user.id).eq('status', 'assigned')
       .order('assigned_at', { ascending: true })
     setItems((data ?? []) as unknown as ScheduleItem[])
@@ -408,7 +409,13 @@ export default function CleanerScheduleScreen() {
 
     setSubmitting(false)
     if (error) {
-      Alert.alert('Error', error.message)
+      if (error.code === '23505') {
+        setShowForm(false)
+        loadRequests()
+        Alert.alert('Already requested', 'You already have a day-off request for this date.')
+      } else {
+        Alert.alert('Error', error.message)
+      }
     } else {
       setShowForm(false)
       loadRequests()
@@ -449,7 +456,7 @@ export default function CleanerScheduleScreen() {
         const note = existing.admin_note ? `\n\nAdmin note: "${existing.admin_note}"` : ''
         Alert.alert('Request Rejected', `Your request for ${formatDate(dateStr)} was not approved.${note}`)
       }
-    } else if (dateStr >= tomorrowStr()) {
+    } else if (dateStr >= tomorrowStr() && new Date(dateStr + 'T00:00:00').getDay() !== 0) {
       setFormDate(dateStr)
       setShowForm(true)
     }
@@ -586,7 +593,7 @@ export default function CleanerScheduleScreen() {
                       <Feather name="briefcase" size={20} color={Colors.primary} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{SERVICE_LABELS[item.bookings?.service_type]}</Text>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{getService(item.bookings?.service_slug)?.name ?? item.bookings?.service_slug ?? 'Cleaning Service'}</Text>
                       <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 2 }}>
                         {formatTime(item.bookings?.service_time)} · {item.bookings?.property_sqm} sqm
                       </Text>

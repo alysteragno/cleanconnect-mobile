@@ -4,6 +4,7 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
+import Constants from 'expo-constants'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
@@ -241,6 +242,13 @@ export default function CleanerProfileScreen() {
           <Feather name="log-out" size={16} color="#dc2626" />
           <Text style={{ color: '#dc2626', fontWeight: '700', fontSize: 14 }}>Sign Out</Text>
         </TouchableOpacity>
+
+        {/* App version */}
+        <View style={{ alignItems: 'center', paddingVertical: 4 }}>
+          <Text style={{ fontSize: 12, color: C.textMuted, fontWeight: '500' }}>
+            CleanConnect v{Constants.expoConfig?.version ?? '1.0.0'}
+          </Text>
+        </View>
 
         <View style={{ height: 16 }} />
       </ScrollView>

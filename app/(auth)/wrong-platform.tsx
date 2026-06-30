@@ -25,7 +25,7 @@ export default function WrongPlatformScreen() {
 
       <View style={s.card}>
         <View style={s.logoWrap}>
-          <Image source={require('../../assets/logo.webp')} style={s.logo} resizeMode="contain" />
+          <Image source={require('../../assets/logo.png')} style={s.logo} resizeMode="contain" />
           <Text style={s.brand}>Maid For You Cleaning Services</Text>
         </View>
 

@@ -152,7 +152,7 @@ export default function LoginScreen() {
         <View style={s.card}>
           {/* Logo on white */}
           <View style={s.logoWrap}>
-            <Image source={require('../../assets/logo.webp')} style={s.logo} resizeMode="contain" />
+            <Image source={require('../../assets/logo.png')} style={s.logo} resizeMode="contain" />
             <Text style={s.brand}>Maid For You Cleaning Services</Text>
           </View>
 
@@ -194,6 +194,15 @@ export default function LoginScreen() {
               <Feather name={showPassword ? 'eye-off' : 'eye'} size={16} color="#9ca3af" />
             </TouchableOpacity>
           </View>
+
+          {/* Forgot password */}
+          <TouchableOpacity
+            style={s.forgotRow}
+            onPress={() => router.push('/(auth)/forgot-password')}
+            hitSlop={8}
+          >
+            <Text style={s.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
 
           {error && (
             <View style={s.errorBox}>
@@ -305,6 +314,10 @@ const s = StyleSheet.create({
   },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 15, letterSpacing: 0.2 },
   btnLocked: { backgroundColor: '#9ca3af', shadowOpacity: 0 },
+
+  // Forgot password
+  forgotRow: { alignSelf: 'flex-end', marginTop: -6, marginBottom: 14 },
+  forgotText: { fontSize: 13, color: '#db2777', fontWeight: '600' },
 
   // Footer
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },

@@ -141,12 +141,12 @@ function makeStyles(C: ReturnType<typeof useThemeColors>) {
     mapsBtnText: { fontSize: 11, fontWeight: '700', color: '#fff' },
     locationTagRow: {
       position: 'absolute', top: 8, left: 8,
-      backgroundColor: C.white,
+      backgroundColor: 'rgba(255,255,255,0.95)',
       borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5,
       flexDirection: 'row', alignItems: 'center', gap: 5,
       maxWidth: '78%',
     },
-    locationTagText: { fontSize: 11, fontWeight: '600', color: C.text, flexShrink: 1 },
+    locationTagText: { fontSize: 11, fontWeight: '600', color: '#111827', flexShrink: 1 },
 
     /* Chips */
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, marginBottom: 12 },
@@ -406,14 +406,16 @@ export default function CleanerHomeScreen() {
                 return (
                   <View key={offer.id} style={s.offerCard}>
 
-                    {/* Color accent bar */}
-                    <View style={[s.accentBar, { backgroundColor: svc.color }]} />
 
                     {/* Header: icon · service name · date/time · price */}
                     <View style={s.offerHeader}>
-                      <View style={[s.offerIcon, { backgroundColor: svc.bg }]}>
-                        <Feather name={svc.icon as any} size={20} color={svc.color} />
-                      </View>
+                      {svcDef?.image ? (
+                        <Image source={svcDef.image} style={s.offerIcon} resizeMode="cover" />
+                      ) : (
+                        <View style={[s.offerIcon, { backgroundColor: svc.bg }]}>
+                          <Feather name={svc.icon as any} size={20} color={svc.color} />
+                        </View>
+                      )}
                       <View style={s.offerTitleGroup}>
                         <Text style={s.offerService}>
                           {serviceLabel}
@@ -475,7 +477,7 @@ export default function CleanerHomeScreen() {
                           </View>
                         )}
 
-                                        {/* Expand hint (bottom-right) */}
+                        {/* Expand hint (bottom-right) */}
                         <View style={s.mapsBtn}>
                           <Feather name="maximize-2" size={11} color="#fff" />
                           <Text style={s.mapsBtnText}>View Location</Text>
@@ -585,6 +587,7 @@ function SwipeSlider({
   onConfirm: () => void
   disabled?: boolean
 }) {
+  const C     = useThemeColors()
   const THUMB = 60
   const PAD   = 5
 
@@ -754,11 +757,15 @@ function ActiveJobFlow({
     if (updating) return
     setUpdating(true)
     try {
-      await supabase.from('bookings').update({ payment_status: 'paid' }).eq('id', offer.booking_id)
+      const { error } = await supabase
+        .from('bookings')
+        .update({ payment_status: 'paid' })
+        .eq('id', offer.booking_id)
+      if (error) throw error
       setCashCollected(true)
       onJobUpdate()
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Could not record payment.')
+      Alert.alert('Payment Error', err?.message ?? 'Could not record payment. Please try again.')
     } finally { setUpdating(false) }
   }
 
@@ -861,7 +868,7 @@ function ActiveJobFlow({
 
           {/* Swipe — Complete Job (pulsing) */}
           {(() => {
-            const cashPending = bk.payment_method === 'cash' && !cashCollected && bk.payment_status !== 'paid'
+            const cashPending = bk.payment_method === 'cash' && !cashCollected
             return (
               <View style={{ gap: 6 }}>
                 {cashPending && (

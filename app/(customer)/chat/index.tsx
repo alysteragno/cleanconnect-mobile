@@ -4,6 +4,7 @@ import {
   TextInput, ActivityIndicator, KeyboardAvoidingView, Platform,
   Animated,
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
@@ -16,7 +17,6 @@ type Message = {
   customer_id: string
   message: string
   created_at: string
-  read_at: string | null
 }
 
 function formatTime(d: string) {
@@ -64,22 +64,16 @@ function MessageBubble({ item, userId, animate, C }: { item: Message; userId: st
           {item.message}
         </Text>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3, marginHorizontal: 4 }}>
-        <Text style={{ fontSize: 10, color: C.textMuted }}>{formatTime(item.created_at)}</Text>
-        {isMe && (
-          <Feather
-            name={item.read_at ? 'check-circle' : 'check'}
-            size={10}
-            color={item.read_at ? Colors.primary : C.textMuted}
-          />
-        )}
-      </View>
+      <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3, marginHorizontal: 4 }}>
+        {formatTime(item.created_at)}
+      </Text>
     </Animated.View>
   )
 }
 
 export default function ChatScreen() {
   const C = useThemeColors()
+  const router = useRouter()
   const flatListRef = useRef<FlatList>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -97,16 +91,14 @@ export default function ChatScreen() {
       setUserId(user.id)
 
       const { data: msgs, error } = await supabase
-        .from('direct_messages')
-        .select('id, sender_id, customer_id, message, created_at, read_at')
+        .from('admin_messages')
+        .select('id, sender_id, customer_id, message, created_at')
         .eq('customer_id', user.id)
         .order('created_at', { ascending: true })
 
       if (error) console.error('[chat] fetch error:', error.message)
       setMessages((msgs ?? []) as Message[])
       setLoading(false)
-
-      await markAdminMessagesRead(user.id)
     }
 
     init()
@@ -120,21 +112,13 @@ export default function ChatScreen() {
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
-        table: 'direct_messages',
+        table: 'admin_messages',
         filter: `customer_id=eq.${userId}`,
-      }, async (payload) => {
+      }, (payload) => {
         const incoming = payload.new as Message
 
         if (animatedIds.current.has(incoming.id)) return
         if (incoming.sender_id === userId && pendingTexts.current.has(incoming.message)) return
-
-        if (incoming.sender_id !== userId) {
-          await supabase
-            .from('direct_messages')
-            .update({ read_at: new Date().toISOString() })
-            .eq('id', incoming.id)
-          incoming.read_at = new Date().toISOString()
-        }
 
         animatedIds.current.add(incoming.id)
         setMessages(prev => [...prev, incoming])
@@ -144,15 +128,6 @@ export default function ChatScreen() {
 
     return () => { supabase.removeChannel(channel) }
   }, [userId])
-
-  async function markAdminMessagesRead(customerId: string) {
-    await supabase
-      .from('direct_messages')
-      .update({ read_at: new Date().toISOString() })
-      .eq('customer_id', customerId)
-      .neq('sender_id', customerId)
-      .is('read_at', null)
-  }
 
   async function sendMessage() {
     if (!draft.trim() || !userId) return
@@ -168,16 +143,15 @@ export default function ChatScreen() {
       customer_id: userId,
       message: text,
       created_at: new Date().toISOString(),
-      read_at: null,
     }
     animatedIds.current.add(optimisticId)
     setMessages(prev => [...prev, optimistic])
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
 
     const { data, error } = await supabase
-      .from('direct_messages')
+      .from('admin_messages')
       .insert({ customer_id: userId, sender_id: userId, message: text })
-      .select('id, sender_id, customer_id, message, created_at, read_at')
+      .select('id, sender_id, customer_id, message, created_at')
       .single()
 
     pendingTexts.current.delete(text)
@@ -211,6 +185,8 @@ export default function ChatScreen() {
         title="Messages"
         subtitle="Direct messages with admin"
         hideBell
+        showBack
+        onBackPress={() => router.back()}
       />
 
       {messages.length === 0 ? (

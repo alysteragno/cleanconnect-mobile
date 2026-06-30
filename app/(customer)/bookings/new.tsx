@@ -75,6 +75,8 @@ const PAYMENT_ICONS: Record<string, React.ReactNode> = {
   bank_check: <BankCheckIcon />,
 }
 
+type BankAccount = { bank_name: string; account_number: string; account_name: string }
+
 // ─── Shared UI primitives ────────────────────────────────────────────────────
 
 function RequiredBadge({ C }: { C: ReturnType<typeof useThemeColors> }) {
@@ -449,7 +451,9 @@ export default function NewBookingScreen() {
   const [processing, setProcessing] = useState(false)
   const [aiStep, setAiStep] = useState(0)
 
-  const [paymentSettings, setPaymentSettings] = useState<Record<string, string>>({})
+  const [paymentSettings,  setPaymentSettings]  = useState<Record<string, string>>({})
+  const [bankAccounts,     setBankAccounts]     = useState<BankAccount[] | undefined>(undefined)
+  const [selectedBankIdx,  setSelectedBankIdx]  = useState(0)
   const [qrUrls, setQrUrls] = useState<Record<string, string>>({})
   const draftLoaded = useRef(false)
   const draftCleared = useRef(false)
@@ -567,11 +571,16 @@ export default function NewBookingScreen() {
     supabase
       .from('settings')
       .select('key, value')
-      .in('key', ['gcash_number', 'maya_number', 'bank_name', 'bank_account_number', 'bank_account_name', 'check_payable_to', 'check_delivery_address'])
+      .in('key', ['gcash_number', 'maya_number', 'bank_accounts', 'check_payable_to', 'check_delivery_address'])
       .then(({ data }) => {
         const map: Record<string, string> = {}
         ;(data ?? []).forEach((s: { key: string; value: string }) => { map[s.key] = s.value })
         setPaymentSettings(map)
+        try {
+          setBankAccounts(map.bank_accounts ? JSON.parse(map.bank_accounts) : [])
+        } catch {
+          setBankAccounts([])
+        }
       })
     setQrUrls({
       gcash: supabase.storage.from('payment-assets').getPublicUrl('qr-codes/gcash.jpg').data.publicUrl,
@@ -1342,10 +1351,10 @@ export default function NewBookingScreen() {
               <DateTimePicker
                 mode="time"
                 value={form.service_time ?? (() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d })()}
-                minuteInterval={30}
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 themeVariant={isDark ? 'dark' : 'light'}
                 accentColor={Colors.primary}
+                {...(Platform.OS === 'ios' ? { minuteInterval: 30 as const } : {})}
                 onChange={(_e: DateTimePickerEvent, date?: Date) => {
                   if (Platform.OS === 'android') setShowTimePicker(false)
                   if (date) update('service_time', date)
@@ -1813,14 +1822,48 @@ export default function NewBookingScreen() {
                       C={C}
                     />
                   ) : (
-                    Object.keys(paymentSettings).length > 0 ? (
-                      <View style={{ gap: 6 }}>
-                        {paymentSettings.bank_name         && <BankRow label="Bank"         value={paymentSettings.bank_name}         C={C} />}
-                        {paymentSettings.bank_account_number && <BankRow label="Account No."  value={paymentSettings.bank_account_number} C={C} />}
-                        {paymentSettings.bank_account_name && <BankRow label="Account Name" value={paymentSettings.bank_account_name} C={C} />}
-                      </View>
-                    ) : (
+                    bankAccounts === undefined ? (
                       <Text style={{ fontSize: 12, color: C.textSecondary }}>Loading payment details...</Text>
+                    ) : bankAccounts.length === 0 ? (
+                      <Text style={{ fontSize: 13, color: '#dc2626', fontWeight: '500', lineHeight: 18 }}>
+                        Bank transfer is currently unavailable. Please choose another payment method.
+                      </Text>
+                    ) : (
+                      <View style={{ gap: 10 }}>
+                        {bankAccounts.length > 1 && (
+                          <View>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: C.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                              Select Bank
+                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                              {bankAccounts.map((bank, i) => (
+                                <TouchableOpacity
+                                  key={i}
+                                  onPress={() => setSelectedBankIdx(i)}
+                                  style={{
+                                    paddingHorizontal: 14, paddingVertical: 8,
+                                    borderRadius: 10, borderWidth: 1.5,
+                                    borderColor: selectedBankIdx === i ? Colors.primary : C.border,
+                                    backgroundColor: selectedBankIdx === i ? Colors.primary + '15' : C.white,
+                                  }}
+                                >
+                                  <Text style={{
+                                    fontSize: 13, fontWeight: '700',
+                                    color: selectedBankIdx === i ? Colors.primary : C.text,
+                                  }}>
+                                    {bank.bank_name}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </View>
+                        )}
+                        <View style={{ gap: 6 }}>
+                          <BankRow label="Bank"         value={bankAccounts[selectedBankIdx].bank_name}      C={C} />
+                          <BankRow label="Account No."  value={bankAccounts[selectedBankIdx].account_number} C={C} />
+                          <BankRow label="Account Name" value={bankAccounts[selectedBankIdx].account_name}   C={C} />
+                        </View>
+                      </View>
                     )
                   )}
 

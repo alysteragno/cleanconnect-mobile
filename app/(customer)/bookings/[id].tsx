@@ -87,6 +87,13 @@ function fmtTime(t: string) {
   const [h, m] = t.split(':').map(Number)
   return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
 }
+function fmtCreatedAt(iso: string) {
+  const d = new Date(iso)
+  const date = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+  const h = d.getHours(), m = d.getMinutes()
+  const time = `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+  return `${date} · ${time}`
+}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -105,10 +112,13 @@ export default function BookingDetailScreen() {
   const [comment,          setComment]          = useState('')
   const [submitting,       setSubmitting]       = useState(false)
   const [refreshing,       setRefreshing]       = useState(false)
-  const [cleanerStats,     setCleanerStats]     = useState<{ avg: number; count: number } | null>(null)
-  const [cleanerEta,       setCleanerEta]       = useState<{ distKm: number; etaMin: number } | null>(null)
-  const [cleanerName,      setCleanerName]      = useState<string | null>(null)
-  const [cleanerLocation,  setCleanerLocation]  = useState<{ lat: number; lng: number } | null>(null)
+  const [assignedCleaners, setAssignedCleaners] = useState<Array<{
+    id: string
+    name: string | null
+    stats: { avg: number; count: number } | null
+    eta: { distKm: number; etaMin: number } | null
+    location: { lat: number; lng: number } | null
+  }>>([])
 
   useEffect(() => { load() }, [id])
 
@@ -151,7 +161,7 @@ export default function BookingDetailScreen() {
     if (bk.payment_method === 'gcash' || bk.payment_method === 'bank_transfer') {
       const { data: settings } = await supabase
         .from('settings').select('key, value')
-        .in('key', ['gcash_number', 'bank_name', 'bank_account', 'bank_account_name'])
+        .in('key', ['gcash_number', 'bank_accounts'])
       const map: Record<string, string> = {}
       ;(settings ?? []).forEach((s: { key: string; value: string }) => { map[s.key] = s.value })
       setPaymentSettings(map)
@@ -164,40 +174,30 @@ export default function BookingDetailScreen() {
       setExistingFeedback(fb as Feedback | null)
     }
 
-    // Cleaner name, rating, and home-to-service ETA
-    // Assignment status is 'assigned' (set by admin web)
-    const assignedCleanerId = (bk.cleaner_assignments as any[])?.find((a: any) => a.status === 'assigned')?.cleaner_id
-    if (assignedCleanerId) {
-      const [{ data: ratings }, { data: cleanerProfile }] = await Promise.all([
-        supabase.from('feedback').select('rating').eq('cleaner_id', assignedCleanerId),
-        supabase.from('profiles').select('full_name, home_lat, home_lng').eq('id', assignedCleanerId).maybeSingle(),
-      ])
-      if (ratings && ratings.length > 0) {
-        const sum = ratings.reduce((s: number, r: { rating: number }) => s + r.rating, 0)
-        setCleanerStats({ avg: sum / ratings.length, count: ratings.length })
-      } else {
-        setCleanerStats(null)
-      }
-      setCleanerName((cleanerProfile as any)?.full_name ?? null)
-      const cLat = (cleanerProfile as any)?.home_lat
-      const cLng = (cleanerProfile as any)?.home_lng
-      if (cLat && cLng) {
-        setCleanerLocation({ lat: cLat, lng: cLng })
-        if (bk.service_lat && bk.service_lng) {
-          const distKm = haversineKm(cLat, cLng, bk.service_lat, bk.service_lng)
-          setCleanerEta({ distKm, etaMin: Math.round(distKm / 30 * 60) })
-        } else {
-          setCleanerEta(null)
-        }
-      } else {
-        setCleanerLocation(null)
-        setCleanerEta(null)
-      }
+    // Fetch all assigned cleaners — each row has a distinct cleaner_id
+    const assignedIds: string[] = ((bk.cleaner_assignments as any[]) ?? [])
+      .filter((a: any) => a.status === 'assigned' && a.cleaner_id)
+      .map((a: any) => a.cleaner_id as string)
+
+    if (assignedIds.length > 0) {
+      const cleaners = await Promise.all(assignedIds.map(async (cId) => {
+        const [{ data: ratings }, { data: profile }] = await Promise.all([
+          supabase.from('feedback').select('rating').eq('cleaner_id', cId),
+          supabase.from('profiles').select('full_name, home_lat, home_lng').eq('id', cId).maybeSingle(),
+        ])
+        const sum = ratings?.reduce((s: number, r: { rating: number }) => s + r.rating, 0) ?? 0
+        const stats = ratings && ratings.length > 0 ? { avg: sum / ratings.length, count: ratings.length } : null
+        const cLat = (profile as any)?.home_lat
+        const cLng = (profile as any)?.home_lng
+        const location = cLat && cLng ? { lat: cLat, lng: cLng } : null
+        const eta = location && bk.service_lat && bk.service_lng
+          ? (() => { const d = haversineKm(cLat, cLng, bk.service_lat, bk.service_lng); return { distKm: d, etaMin: Math.round(d / 30 * 60) } })()
+          : null
+        return { id: cId, name: (profile as any)?.full_name ?? null, stats, eta, location }
+      }))
+      setAssignedCleaners(cleaners)
     } else {
-      setCleanerName(null)
-      setCleanerStats(null)
-      setCleanerEta(null)
-      setCleanerLocation(null)
+      setAssignedCleaners([])
     }
 
     setBooking(bk as BookingDetail)
@@ -208,13 +208,20 @@ export default function BookingDetailScreen() {
   async function submitFeedback() {
     if (rating === 0) { Alert.alert('Rating required', 'Please select a star rating.'); return }
     setSubmitting(true)
-    const cleaner_id = booking?.cleaner_assignments?.find(a => a.status === 'assigned')?.cleaner_id ?? null
-    const { error } = await supabase.from('feedback').insert({
-      booking_id: id, cleaner_id, rating, comment: comment.trim() || null,
-    })
-    setSubmitting(false)
-    if (error) { Alert.alert('Error', error.message); return }
-    setExistingFeedback({ id: '', booking_id: id!, cleaner_id: cleaner_id ?? '', rating, comment, created_at: '' })
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated.')
+      const cleaner_id = assignedCleaners[0]?.id ?? null
+      const { error } = await supabase.from('feedback').insert({
+        booking_id: id, customer_id: user.id, cleaner_id, rating, comment: comment.trim() || null,
+      })
+      if (error) throw error
+      setExistingFeedback({ id: '', booking_id: id!, cleaner_id: cleaner_id ?? '', rating, comment, created_at: '' })
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'Could not submit feedback.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   // ── Loading / deleted states ─────────────────────────────────────────────
@@ -277,6 +284,7 @@ export default function BookingDetailScreen() {
 
   const progressIdx  = PROGRESS_STEPS.indexOf(booking.status as BookingStatus)
   const statusColor  = STATUS_COLORS[booking.status as BookingStatus]
+  const cleanerNames = assignedCleaners.map(c => c.name ?? 'Unknown').join(' & ')
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -306,12 +314,12 @@ export default function BookingDetailScreen() {
         )}
         {booking.status === 'confirmed' && (
           <StatusBanner icon="check-circle" title="Booking Confirmed"
-            body={cleanerName ? `${cleanerName} has been assigned to your booking.` : 'Your booking is confirmed. A cleaner will be assigned soon.'}
+            body={assignedCleaners.length > 0 ? `${cleanerNames} has been assigned to your booking.` : 'Your booking is confirmed. A cleaner will be assigned soon.'}
             bg="#fdf2f8" accent={Colors.primary} titleColor="#831843" bodyColor="#9d174d" />
         )}
         {booking.status === 'in_progress' && (
           <StatusBanner icon="wind" title="Cleaning in Progress"
-            body={cleanerName ? `${cleanerName} is currently cleaning your space.` : 'Your space is currently being cleaned.'}
+            body={assignedCleaners.length > 0 ? `${cleanerNames} is currently cleaning your space.` : 'Your space is currently being cleaned.'}
             bg="#f5f3ff" accent="#7c3aed" titleColor="#4c1d95" bodyColor="#5b21b6" live />
         )}
         {booking.status === 'completed' && (
@@ -354,12 +362,12 @@ export default function BookingDetailScreen() {
                         alignItems: 'center', justifyContent: 'center',
                         backgroundColor: (done || active) ? Colors.primary : C.borderLight,
                       }}>
-                        {done
+                        {(done || active)
                           ? <Feather name="check" size={14} color="#fff" />
-                          : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: active ? '#fff' : C.textMuted }} />
+                          : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.textMuted }} />
                         }
                       </View>
-                      <View style={{ flex: 1, height: 2, backgroundColor: i === PROGRESS_STEPS.length - 1 ? 'transparent' : done ? Colors.primary : C.border }} />
+                      <View style={{ flex: 1, height: 2, backgroundColor: i === PROGRESS_STEPS.length - 1 ? 'transparent' : (done || active) ? Colors.primary : C.border }} />
                     </View>
                     <Text style={{
                       fontSize: 9, fontWeight: '700', marginTop: 7, textAlign: 'center', lineHeight: 13,
@@ -478,44 +486,43 @@ export default function BookingDetailScreen() {
           </View>
         </View>
 
-        {/* ── Assigned cleaner card ── */}
-        {cleanerName && (
-          <View style={{
+        {/* ── Assigned cleaner cards (one per cleaner) ── */}
+        {assignedCleaners.map((cleaner) => (
+          <View key={cleaner.id} style={{
             marginHorizontal: 16, marginBottom: 14,
             borderRadius: 20, overflow: 'hidden',
             backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
           }}>
-            {/* Pink header */}
-            <View style={{ backgroundColor: Colors.primary, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            <View style={{ padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
               <View style={{
                 width: 52, height: 52, borderRadius: 26,
-                backgroundColor: 'rgba(255,255,255,0.2)',
+                backgroundColor: '#f1f5f9',
                 alignItems: 'center', justifyContent: 'center',
               }}>
-                <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff' }}>
-                  {cleanerName.charAt(0).toUpperCase()}
+                <Text style={{ fontSize: 22, fontWeight: '800', color: '#475569' }}>
+                  {(cleaner.name ?? '?').charAt(0).toUpperCase()}
                 </Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
+                <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
                   Assigned Cleaner
                 </Text>
-                <Text style={{ fontSize: 17, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>{cleanerName}</Text>
-                {cleanerStats ? (
+                <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.3 }}>{cleaner.name ?? 'Unknown'}</Text>
+                {cleaner.stats ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                     {[1, 2, 3, 4, 5].map(n => (
-                      <Ionicons key={n} name={starIcon(n, cleanerStats.avg)} size={12} color="rgba(255,255,255,0.85)" />
+                      <Ionicons key={n} name={starIcon(n, cleaner.stats!.avg)} size={12} color="#f59e0b" />
                     ))}
-                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', marginLeft: 2 }}>
-                      {cleanerStats.avg.toFixed(1)} ({cleanerStats.count})
+                    <Text style={{ fontSize: 11, color: C.textSecondary, marginLeft: 2 }}>
+                      {cleaner.stats.avg.toFixed(1)} ({cleaner.stats.count})
                     </Text>
                   </View>
                 ) : (
-                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>No reviews yet</Text>
+                  <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>No reviews yet</Text>
                 )}
               </View>
-              <View style={{ backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>✓ Assigned</Text>
+              <View style={{ backgroundColor: '#fdf2f8', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: '#fbcfe8' }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary }}>✓ Assigned</Text>
               </View>
             </View>
 
@@ -524,39 +531,37 @@ export default function BookingDetailScreen() {
               <View style={{ padding: 16, gap: 12 }}>
 
                 {/* ETA tile */}
-                {cleanerEta && (
+                {cleaner.eta && (
                   <View style={{
-                    backgroundColor: C.primaryBg, borderRadius: 14, padding: 16,
+                    backgroundColor: C.background, borderRadius: 14, padding: 16,
                     flexDirection: 'row', alignItems: 'center', gap: 14,
-                    borderWidth: 1, borderColor: Colors.primary + '25',
+                    borderWidth: 1, borderColor: C.border,
                   }}>
                     <View style={{
                       width: 48, height: 48, borderRadius: 24,
-                      backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
-                      shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.35, shadowRadius: 8, elevation: 4,
+                      backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <Feather name="navigation" size={22} color="#fff" />
+                      <Feather name="navigation" size={22} color="#475569" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 11, color: Colors.primary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+                      <Text style={{ fontSize: 11, color: C.textSecondary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
                         Est. Travel Time
                       </Text>
                       <Text style={{ fontSize: 26, fontWeight: '800', color: C.text, letterSpacing: -0.5 }}>
-                        {fmtEta(cleanerEta.etaMin)}
+                        {fmtEta(cleaner.eta.etaMin)}
                       </Text>
                       <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 1 }}>
-                        {cleanerEta.distKm.toFixed(1)} km from cleaner's location
+                        {cleaner.eta.distKm.toFixed(1)} km from cleaner's location
                       </Text>
                     </View>
                   </View>
                 )}
 
                 {/* Platform Maps card — Grab-style */}
-                {cleanerLocation ? (
+                {cleaner.location ? (
                   <TouchableOpacity
                     onPress={() => {
-                      const { lat, lng } = cleanerLocation
+                      const { lat, lng } = cleaner.location!
                       const url = Platform.OS === 'ios'
                         ? `maps://?ll=${lat},${lng}&q=Cleaner's%20Starting%20Point`
                         : `https://maps.google.com/?q=${lat},${lng}`
@@ -644,7 +649,7 @@ export default function BookingDetailScreen() {
                           Starting point
                         </Text>
                         <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 1, fontVariant: ['tabular-nums'] }}>
-                          {cleanerLocation.lat.toFixed(5)}, {cleanerLocation.lng.toFixed(5)}
+                          {cleaner.location.lat.toFixed(5)}, {cleaner.location.lng.toFixed(5)}
                         </Text>
                       </View>
                       <View style={{
@@ -672,7 +677,7 @@ export default function BookingDetailScreen() {
               </View>
             )}
           </View>
-        )}
+        ))}
 
 
 
@@ -841,6 +846,14 @@ function HeroContent({
         ))}
       </View>
 
+      {/* Booked on */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 18 }}>
+        <Feather name="clock" size={10} color="rgba(255,255,255,0.45)" />
+        <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: '500' }}>
+          Booked on {fmtCreatedAt(booking.created_at)}
+        </Text>
+      </View>
+
       {/* Divider */}
       <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.14)', marginBottom: 18 }} />
 
@@ -867,7 +880,7 @@ function HeroContent({
             {booking.payment_status === 'paid' ? '✓ Paid'
               : booking.payment_status === 'partial' ? 'Partially Paid'
               : booking.payment_status === 'refunded' ? 'Refunded'
-              : 'Unpaid'}
+              : 'Pending Confirmation'}
           </Text>
         </View>
       </View>

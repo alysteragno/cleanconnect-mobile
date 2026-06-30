@@ -149,7 +149,7 @@ export default function CurrentBookingScreen() {
     if (bk.payment_method === 'gcash' || bk.payment_method === 'bank_transfer') {
       const { data: settings } = await supabase
         .from('settings').select('key, value')
-        .in('key', ['gcash_number', 'bank_name', 'bank_account', 'bank_account_name'])
+        .in('key', ['gcash_number', 'bank_accounts'])
       const map: Record<string, string> = {}
       ;(settings ?? []).forEach((s: { key: string; value: string }) => { map[s.key] = s.value })
       setPaymentSettings(map)

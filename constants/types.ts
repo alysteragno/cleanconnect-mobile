@@ -35,6 +35,7 @@ export type Branch = {
 export type Feedback = {
   id: string
   booking_id: string
+  customer_id: string
   cleaner_id: string
   rating: number
   comment: string | null

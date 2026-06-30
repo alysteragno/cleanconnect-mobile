@@ -132,6 +132,7 @@ export default function ComplaintDetailScreen() {
       sender_id: userId,
       message: text,
       created_at: new Date().toISOString(),
+      isAdminMessage: false,
     }
     setMessages(prev => [...prev, optimistic])
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50)
