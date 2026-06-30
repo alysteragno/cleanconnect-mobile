@@ -6,15 +6,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
-  Linking,
   RefreshControl,
-  Platform,
 } from "react-native";
-import MapView, {
-  Marker,
-  PROVIDER_GOOGLE,
-  PROVIDER_DEFAULT,
-} from "react-native-maps";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { Feather } from "@expo/vector-icons";
@@ -25,6 +18,7 @@ import { useTheme } from "@/context/ThemeContext";
 import AppHeader from "@/components/AppHeader";
 import AssignedJobCard from "@/components/AssignedJobCard";
 import SwipeSlider from "@/components/SwipeSlider";
+import JobLocationModal from "@/components/JobLocationModal";
 
 const ARRIVAL_RADIUS_METERS = 500;
 
@@ -98,6 +92,7 @@ export default function JobDetailScreen() {
   // async states
   const [locating, setLocating] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
 
   useEffect(() => {
     loadAssignment();
@@ -367,29 +362,6 @@ export default function JobDetailScreen() {
     setCompletedAt(new Date());
   }
 
-  function openMaps() {
-    const b = assignment?.bookings;
-    if (!b) return;
-    const address = [
-      b.address_unit,
-      b.address_street,
-      b.address_city,
-      b.address_province,
-    ]
-      .filter(Boolean)
-      .join(", ");
-    if (b.service_lat && b.service_lng) {
-      const url =
-        Platform.OS === "ios"
-          ? `maps://?daddr=${b.service_lat},${b.service_lng}`
-          : `https://www.google.com/maps/dir/?api=1&destination=${b.service_lat},${b.service_lng}`;
-      Linking.openURL(url);
-    } else if (address) {
-      Linking.openURL(
-        `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`,
-      );
-    }
-  }
 
   // ── Render ────────────────────────────────────────────────────
 
@@ -498,7 +470,6 @@ export default function JobDetailScreen() {
         <View style={{ paddingHorizontal: 16, gap: 14 }}>
           {/* ── Job summary ── */}
           <AssignedJobCard
-            serviceSlug={b.service_slug}
             serviceName={b.service_name}
             spaceType={b.space_type}
             serviceDate={b.service_date}
@@ -512,6 +483,12 @@ export default function JobDetailScreen() {
             paymentMethod={b.payment_method}
             customer={b.customer}
             bookedAt={b.created_at}
+            serviceLatLng={
+              b.service_lat && b.service_lng
+                ? { lat: b.service_lat, lng: b.service_lng }
+                : null
+            }
+            onMapPress={() => setShowMapModal(true)}
           />
 
           {/* ── Completion success card ── */}
@@ -634,92 +611,6 @@ export default function JobDetailScreen() {
             </>
           )}
 
-          {/* ── Service location map ── */}
-          <View
-            style={{
-              backgroundColor: C.white,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: C.border,
-              overflow: "hidden",
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                backgroundColor: C.background,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
-                borderBottomWidth: 1,
-                borderBottomColor: C.border,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: "700",
-                  color: C.textSecondary,
-                }}
-              >
-                Service Location
-              </Text>
-              <TouchableOpacity
-                onPress={openMaps}
-                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-              >
-                <Feather name="navigation" size={13} color={Colors.primary} />
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: Colors.primary,
-                    fontWeight: "600",
-                  }}
-                >
-                  Get Directions
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {b.service_lat && b.service_lng ? (
-              <MapView
-                provider={
-                  Platform.OS === "android" ? PROVIDER_GOOGLE : PROVIDER_DEFAULT
-                }
-                style={{ height: 160 }}
-                region={{
-                  latitude: b.service_lat,
-                  longitude: b.service_lng,
-                  latitudeDelta: 0.008,
-                  longitudeDelta: 0.008,
-                }}
-                scrollEnabled={false}
-                zoomEnabled={false}
-                rotateEnabled={false}
-                pitchEnabled={false}
-              >
-                <Marker
-                  coordinate={{
-                    latitude: b.service_lat,
-                    longitude: b.service_lng,
-                  }}
-                  pinColor={Colors.primary}
-                />
-              </MapView>
-            ) : null}
-            <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-              <Text style={{ fontSize: 14, color: C.text, lineHeight: 20 }}>
-                {fullAddress}
-              </Text>
-              {b.service_lat && (
-                <Text
-                  style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}
-                >
-                  GPS: {b.service_lat.toFixed(5)}, {b.service_lng!.toFixed(5)}
-                </Text>
-              )}
-            </View>
-          </View>
 
           {b.special_notes ? (
             <View
@@ -890,6 +781,16 @@ export default function JobDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      {b.service_lat && b.service_lng && (
+        <JobLocationModal
+          visible={showMapModal}
+          coord={{ latitude: b.service_lat, longitude: b.service_lng }}
+          address={fullAddress !== "—" ? fullAddress : undefined}
+          serviceLabel={b.service_name ?? "Service Location"}
+          onClose={() => setShowMapModal(false)}
+        />
+      )}
     </View>
   );
 }
