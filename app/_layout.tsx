@@ -1,5 +1,6 @@
 import '../global.css'
 import { useEffect, useRef } from 'react'
+import { Platform } from 'react-native'
 import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as Notifications from 'expo-notifications'
@@ -17,6 +18,20 @@ Notifications.setNotificationHandler({
   }),
 })
 
+async function setupNotifications() {
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Default',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#db2777',
+      sound: 'default',
+    })
+  }
+  const { status } = await Notifications.requestPermissionsAsync()
+  return status === 'granted'
+}
+
 function RootLayoutInner() {
   const router = useRouter()
   const { isDark } = useTheme()
@@ -24,6 +39,8 @@ function RootLayoutInner() {
   const userRoleRef = useRef<string | null>(null)
 
   useEffect(() => {
+    setupNotifications()
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         await navigateByRole(session.user.id)

@@ -30,9 +30,9 @@ export default function JobLocationModal({
   const [panelHeight, setPanelHeight] = useState(260)
 
   function openDirections() {
-    const url = Platform.OS === 'ios'
-      ? `maps://maps.apple.com/?daddr=${coord.latitude},${coord.longitude}&dirflg=d`
-      : `google.navigation:q=${coord.latitude},${coord.longitude}`
+    const url = Platform.OS === 'android'
+      ? `google.navigation:q=${coord.latitude},${coord.longitude}`
+      : `https://www.google.com/maps/dir/?api=1&destination=${coord.latitude},${coord.longitude}`
     Linking.openURL(url)
   }
 

@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
-import { ServiceDef, getService } from '@/constants/services'
+import { ServiceDef } from '@/constants/services'
 import { useServices } from '@/hooks/useServices'
 import * as Haptics from 'expo-haptics'
 
@@ -62,16 +62,17 @@ export default function ServiceDetailScreen() {
   useEffect(() => {
     if (!svc) return
     supabase
-      .from('feedback')
-      .select('rating, bookings!inner(service_slug)')
+      .from('service_ratings')
+      .select('avg_rating, review_count')
+      .eq('service_name', svc.name)
+      .maybeSingle()
       .then(({ data }) => {
-        const rows = (data ?? []).filter((f: any) => getService(f.bookings?.service_slug)?.serviceType === svc.serviceType)
-        if (rows.length === 0) { setLoadingRating(false); return }
-        const avg = rows.reduce((s: number, f: any) => s + f.rating, 0) / rows.length
-        setRating({ avg, count: rows.length })
+        if (data?.avg_rating != null) {
+          setRating({ avg: Number(data.avg_rating), count: data.review_count ?? 0 })
+        }
         setLoadingRating(false)
       })
-  }, [svc?.serviceType])
+  }, [svc?.name])
 
 
   if (!svc) {

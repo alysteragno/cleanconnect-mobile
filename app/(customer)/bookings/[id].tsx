@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView,
   ActivityIndicator, TextInput, Alert, RefreshControl, Image, Platform, Animated,
+  Keyboard,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import MapView, { Marker, PROVIDER_GOOGLE, PROVIDER_DEFAULT } from 'react-native-maps'
@@ -108,6 +109,18 @@ export default function BookingDetailScreen() {
   const [comment,          setComment]          = useState('')
   const [submitting,       setSubmitting]       = useState(false)
   const [refreshing,       setRefreshing]       = useState(false)
+  const [cancelling,       setCancelling]       = useState(false)
+  const scrollRef = useRef<ScrollView>(null)
+  const [kbHeight, setKbHeight] = useState(0)
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', e => {
+      setKbHeight(e.endCoordinates.height)
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80)
+    })
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0))
+    return () => { show.remove(); hide.remove() }
+  }, [])
   const [cleanerMapModal, setCleanerMapModal] = useState<{ lat: number; lng: number; name: string | null; address: string } | null>(null)
   const [assignedCleaners, setAssignedCleaners] = useState<Array<{
     id: string
@@ -173,7 +186,7 @@ export default function BookingDetailScreen() {
 
     // Fetch all assigned cleaners — each row has a distinct cleaner_id
     const assignedIds: string[] = ((bk.cleaner_assignments as any[]) ?? [])
-      .filter((a: any) => a.status === 'assigned' && a.cleaner_id)
+      .filter((a: any) => a.cleaner_id && a.status !== 'declined')
       .map((a: any) => a.cleaner_id as string)
 
     if (assignedIds.length > 0) {
@@ -214,6 +227,70 @@ export default function BookingDetailScreen() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function cancelBooking() {
+    if (!booking) return
+    const hasEnRoute = !!booking.cleaner_en_route_at
+
+    Alert.alert(
+      'Cancel Booking',
+      hasEnRoute
+        ? 'Our cleaner is already in transit or has arrived at your location.\n\nPer our cancellation policy, a Transportation/Gas Fee will be charged for last-minute cancellations. Do you still want to cancel?'
+        : 'Cancellation is free of charge when done ahead of time.\n\nAre you sure you want to cancel this booking?',
+      [
+        { text: 'Keep Booking', style: 'cancel' },
+        {
+          text: 'Cancel Booking',
+          style: 'destructive',
+          onPress: async () => {
+            setCancelling(true)
+            try {
+              const { data: { user } } = await supabase.auth.getUser()
+              if (!user) throw new Error('Not authenticated.')
+
+              const { error } = await supabase
+                .from('bookings')
+                .update({ status: 'cancelled' })
+                .eq('id', id)
+                .eq('customer_id', user.id)
+              if (error) throw error
+
+              await supabase
+                .from('cleaner_assignments')
+                .update({ status: 'declined' })
+                .eq('booking_id', id)
+
+              await supabase.from('notifications').insert({
+                user_id: user.id,
+                title: 'Booking Cancelled',
+                body: hasEnRoute
+                  ? 'Your booking has been cancelled. Per our last-minute cancellation policy, a Transportation/Gas Fee applies. Our team will follow up with the details.'
+                  : 'Your booking has been successfully cancelled. No charges apply.',
+                type: 'info',
+              })
+
+              for (const cleaner of assignedCleaners) {
+                await supabase.from('notifications').insert({
+                  user_id: cleaner.id,
+                  title: 'Booking Cancelled by Customer',
+                  body: hasEnRoute
+                    ? 'The customer cancelled after you were already in transit or on-site. Per company policy, you are entitled to a Transportation/Gas Fee. Please contact admin for details.'
+                    : 'The customer has cancelled their booking. No charges apply.',
+                  type: 'info',
+                })
+              }
+
+              await load()
+            } catch (err: any) {
+              Alert.alert('Error', err?.message ?? 'Could not cancel booking.')
+            } finally {
+              setCancelling(false)
+            }
+          },
+        },
+      ]
+    )
   }
 
   // ── Loading / deleted states ─────────────────────────────────────────────
@@ -285,8 +362,10 @@ export default function BookingDetailScreen() {
       <AppHeader showBack onBackPress={() => router.back()} title="Booking Details" hideBell />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 }}
+        ref={scrollRef}
+        contentContainerStyle={{ paddingBottom: kbHeight > 0 ? kbHeight + 24 : 40 }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -633,6 +712,49 @@ export default function BookingDetailScreen() {
           </View>
         )}
 
+        {/* ── Contact Admin (cancellation charges / refunds) ── */}
+        {booking.status === 'cancelled' && (
+          <View style={{
+            marginHorizontal: 16, marginBottom: 14,
+            backgroundColor: C.white, borderRadius: 18,
+            borderWidth: 1, borderColor: C.border, overflow: 'hidden',
+          }}>
+            <View style={{
+              backgroundColor: '#eff6ff', paddingHorizontal: 18, paddingVertical: 14,
+              borderBottomWidth: 1, borderBottomColor: '#bfdbfe',
+              flexDirection: 'row', alignItems: 'center', gap: 10,
+            }}>
+              <Feather name="headphones" size={16} color="#1d4ed8" />
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#1e40af', flex: 1 }}>
+                Questions about charges or refunds?
+              </Text>
+            </View>
+            <View style={{ padding: 16, gap: 12 }}>
+              <Text style={{ fontSize: 13, color: C.textSecondary, lineHeight: 20 }}>
+                If you were charged a Transportation/Gas Fee or would like to request a refund, you can message our admin team directly.
+              </Text>
+              <TouchableOpacity
+                onPress={() => router.push({
+                  pathname: '/(customer)/support/new' as any,
+                  params: {
+                    subject: `Cancellation Charge / Refund — Booking #${booking.id.slice(0, 8).toUpperCase()}`,
+                    message: `Hi, I would like to inquire about my cancelled booking #${booking.id.slice(0, 8).toUpperCase()} for ${serviceName} scheduled on ${fmtDate(booking.service_date)}.\n\n`,
+                  },
+                })}
+                activeOpacity={0.85}
+                style={{
+                  backgroundColor: '#1d4ed8', borderRadius: 12,
+                  paddingVertical: 13, flexDirection: 'row',
+                  alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
+              >
+                <Feather name="message-circle" size={16} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Message Admin</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* ── Rate & Feedback ── */}
         {booking.status === 'completed' && (
           <View style={{
@@ -690,6 +812,31 @@ export default function BookingDetailScreen() {
               <ActivityIndicator color={Colors.primary} />
             )}
           </View>
+        )}
+
+        {/* ── Cancel Booking ── */}
+        {(booking.status === 'pending' || booking.status === 'confirmed') && (
+          <TouchableOpacity
+            onPress={cancelBooking}
+            disabled={cancelling}
+            activeOpacity={0.8}
+            style={{
+              marginHorizontal: 16, marginBottom: 14,
+              paddingVertical: 14, borderRadius: 14,
+              borderWidth: 1.5, borderColor: '#dc2626',
+              backgroundColor: '#fff5f5',
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              opacity: cancelling ? 0.6 : 1,
+            }}
+          >
+            {cancelling
+              ? <ActivityIndicator color="#dc2626" size="small" />
+              : <>
+                  <Feather name="x-circle" size={16} color="#dc2626" />
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#dc2626' }}>Cancel Booking</Text>
+                </>
+            }
+          </TouchableOpacity>
         )}
 
       </ScrollView>

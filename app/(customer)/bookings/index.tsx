@@ -60,6 +60,7 @@ export default function BookingsHistoryScreen() {
   const { isDark } = useTheme()
 
   const [bookings,       setBookings]       = useState<Booking[]>([])
+  const [reviewedIds,    setReviewedIds]    = useState<Set<string>>(new Set())
   const [loading,        setLoading]        = useState(true)
   const [refreshing,     setRefreshing]     = useState(false)
   const [filter,         setFilter]         = useState<BookingStatus | 'all'>('all')
@@ -72,7 +73,7 @@ export default function BookingsHistoryScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setLoading(false); setRefreshing(false); return }
 
-    const [{ data: bks }, { count }] = await Promise.all([
+    const [{ data: bks }, { count }, { data: reviewed }] = await Promise.all([
       supabase
         .from('bookings')
         .select('*')
@@ -83,9 +84,14 @@ export default function BookingsHistoryScreen() {
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('is_read', false),
+      supabase
+        .from('feedback')
+        .select('booking_id')
+        .eq('customer_id', user.id),
     ])
 
     setBookings((bks as Booking[]) ?? [])
+    setReviewedIds(new Set((reviewed ?? []).map((r: any) => r.booking_id)))
     setUnreadCount(count ?? 0)
     setLoading(false)
     setRefreshing(false)
@@ -330,6 +336,21 @@ export default function BookingsHistoryScreen() {
                   </View>
                 )}
               </View>
+
+              {/* Review prompt — hidden once review submitted */}
+              {b.status === 'completed' && !reviewedIds.has(b.id) && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  paddingHorizontal: 14, paddingVertical: 9,
+                  backgroundColor: Colors.primary + '0D',
+                  borderTopWidth: 1, borderTopColor: Colors.primary + '22',
+                }}>
+                  <Feather name="star" size={12} color={Colors.primary} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: Colors.primary }}>
+                    Tap to write a review for this service
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           )
         }}

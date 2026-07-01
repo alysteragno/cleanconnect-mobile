@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, ScrollView,
   TextInput, Alert, ActivityIndicator,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
@@ -12,8 +12,9 @@ import AppHeader from '@/components/AppHeader'
 export default function NewComplaintScreen() {
   const router = useRouter()
   const C = useThemeColors()
-  const [subject, setSubject] = useState('')
-  const [message, setMessage] = useState('')
+  const { subject: preSubject, message: preMessage } = useLocalSearchParams<{ subject?: string; message?: string }>()
+  const [subject, setSubject] = useState(preSubject ?? '')
+  const [message, setMessage] = useState(preMessage ?? '')
   const [submitting, setSubmitting] = useState(false)
 
   async function submit() {

@@ -525,122 +525,67 @@ export default function JobDetailScreen() {
 
           {/* ── Completion success card ── */}
           {completed && (
-            <>
+            <View
+              style={{
+                backgroundColor: "#16a34a",
+                borderRadius: 20,
+                padding: 24,
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
               <View
                 style={{
-                  backgroundColor: "#16a34a",
-                  borderRadius: 20,
-                  padding: 24,
+                  width: 64,
+                  height: 64,
+                  borderRadius: 32,
+                  backgroundColor: "rgba(255,255,255,0.2)",
                   alignItems: "center",
-                  gap: 10,
+                  justifyContent: "center",
                 }}
               >
-                <View
-                  style={{
-                    width: 64,
-                    height: 64,
-                    borderRadius: 32,
-                    backgroundColor: "rgba(255,255,255,0.2)",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Feather name="check" size={32} color="#fff" />
-                </View>
-                <Text
-                  style={{ fontSize: 22, fontWeight: "800", color: "#fff" }}
-                >
-                  Job Completed!
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: "rgba(255,255,255,0.8)",
-                    textAlign: "center",
-                  }}
-                >
-                  Great work! The customer has been notified.
-                </Text>
-                {completedAt && (
-                  <View
-                    style={{
-                      backgroundColor: "rgba(255,255,255,0.15)",
-                      borderRadius: 99,
-                      paddingHorizontal: 12,
-                      paddingVertical: 4,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontWeight: "700",
-                        color: "rgba(255,255,255,0.9)",
-                      }}
-                    >
-                      Completed at{" "}
-                      {completedAt.toLocaleTimeString("en-PH", {
-                        hour: "numeric",
-                        minute: "2-digit",
-                        hour12: true,
-                      })}
-                    </Text>
-                  </View>
-                )}
+                <Feather name="check" size={32} color="#fff" />
               </View>
-
-              <View
+              <Text
+                style={{ fontSize: 22, fontWeight: "800", color: "#fff" }}
+              >
+                Job Completed!
+              </Text>
+              <Text
                 style={{
-                  backgroundColor: C.white,
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: "#fde68a",
-                  overflow: "hidden",
+                  fontSize: 13,
+                  color: "rgba(255,255,255,0.8)",
+                  textAlign: "center",
                 }}
               >
+                Great work! The customer has been notified.
+              </Text>
+              {completedAt && (
                 <View
                   style={{
-                    backgroundColor: "#fffbeb",
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                    borderBottomWidth: 1,
-                    borderBottomColor: "#fde68a",
+                    backgroundColor: "rgba(255,255,255,0.15)",
+                    borderRadius: 99,
+                    paddingHorizontal: 12,
+                    paddingVertical: 4,
                   }}
                 >
-                  <Feather name="star" size={16} color="#f59e0b" />
                   <Text
                     style={{
-                      fontSize: 14,
-                      fontWeight: "800",
-                      color: "#92400e",
+                      fontSize: 12,
+                      fontWeight: "700",
+                      color: "rgba(255,255,255,0.9)",
                     }}
                   >
-                    Waiting for Customer Review
+                    Completed at{" "}
+                    {completedAt.toLocaleTimeString("en-PH", {
+                      hour: "numeric",
+                      minute: "2-digit",
+                      hour12: true,
+                    })}
                   </Text>
                 </View>
-                <View style={{ padding: 16 }}>
-                  <View
-                    style={{ flexDirection: "row", gap: 4, marginBottom: 8 }}
-                  >
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <Feather key={n} name="star" size={20} color="#fde68a" />
-                    ))}
-                  </View>
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: C.textSecondary,
-                      lineHeight: 20,
-                    }}
-                  >
-                    Your rating will appear on your profile once the customer
-                    submits their review.
-                  </Text>
-                </View>
-              </View>
-            </>
+              )}
+            </View>
           )}
 
 

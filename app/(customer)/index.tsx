@@ -10,7 +10,7 @@ import { Booking } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
 import { loadDraft } from '@/lib/bookingDraft'
 import * as Haptics from 'expo-haptics'
-import { ServiceDef, getService } from '@/constants/services'
+import { ServiceDef } from '@/constants/services'
 import { useServices } from '@/hooks/useServices'
 
 const AD_BANNERS = [
@@ -211,7 +211,7 @@ export default function CustomerHomeScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: profile }, { count }, { data: inProgress }, { data: feedbackRows }] = await Promise.all([
+    const [{ data: profile }, { count }, { data: inProgress }, { data: ratingRows }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
       supabase
         .from('notifications')
@@ -225,24 +225,14 @@ export default function CustomerHomeScreen() {
         .eq('status', 'in_progress')
         .limit(1)
         .maybeSingle(),
-      supabase
-        .from('feedback')
-        .select('rating, bookings!inner(service_slug)'),
+      supabase.from('service_ratings').select('service_name, avg_rating, review_count'),
     ])
 
-    // Aggregate average rating per service_type, resolved from service_slug
-    const byType: Record<string, { sum: number; count: number }> = {}
-    ;(feedbackRows ?? []).forEach((f: any) => {
-      const slug: string | undefined = f.bookings?.service_slug
-      const st = slug ? getService(slug)?.serviceType : undefined
-      if (!st) return
-      if (!byType[st]) byType[st] = { sum: 0, count: 0 }
-      byType[st].sum += f.rating
-      byType[st].count++
-    })
     const ratings: Record<string, { avg: number; count: number }> = {}
-    Object.entries(byType).forEach(([k, v]) => {
-      ratings[k] = { avg: v.sum / v.count, count: v.count }
+    ;(ratingRows ?? []).forEach((r: any) => {
+      if (r.service_name && r.avg_rating != null) {
+        ratings[r.service_name] = { avg: Number(r.avg_rating), count: r.review_count ?? 0 }
+      }
     })
 
     setName(profile?.full_name?.split(' ')[0] ?? 'there')
@@ -336,7 +326,7 @@ export default function CustomerHomeScreen() {
                       svc={svc}
                       cardWidth={cardWidth}
                       C={C}
-                      rating={serviceRatings[svc.serviceType] ?? null}
+                      rating={serviceRatings[svc.name] ?? null}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
                         router.push(`/(customer)/services/${svc.slug}` as any)

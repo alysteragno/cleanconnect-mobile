@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Maid For You",
+    "name": "Maid For You Cleaning Services",
     "slug": "cleanconnect-mobile",
     "scheme": "cleanconnect",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
@@ -20,7 +20,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.maidforyou.cleanconnect",
       "googleServicesFile": "./google-services.json",
@@ -46,8 +47,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "CleanConnect needs access to your photos to upload furniture images for your booking.",
-          "cameraPermission": "CleanConnect needs camera access to take photos of furniture for your booking."
+          "photosPermission": "Maid For You Cleaning Services needs access to your photos to upload furniture images for your booking.",
+          "cameraPermission": "Maid For You Cleaning Services needs camera access to take photos of furniture for your booking."
         }
       ],
       "expo-font"
