@@ -18,6 +18,8 @@ import {
   STATUS_LABELS,
 } from '@/constants/types'
 import { getService } from '@/constants/services'
+import { PAYMONGO_ENABLED } from '@/constants/config'
+import { startPaymongoCheckout, isPaymongoMethod } from '@/lib/paymongo'
 import GCashLogo from '@/assets/gcash_logo.svg'
 import MayaLogo from '@/assets/maya_logo.svg'
 
@@ -110,6 +112,7 @@ export default function BookingDetailScreen() {
   const [submitting,       setSubmitting]       = useState(false)
   const [refreshing,       setRefreshing]       = useState(false)
   const [cancelling,       setCancelling]       = useState(false)
+  const [paying,           setPaying]           = useState(false)
   const scrollRef = useRef<ScrollView>(null)
   const [kbHeight, setKbHeight] = useState(0)
 
@@ -167,8 +170,9 @@ export default function BookingDetailScreen() {
 
     if (!bk) { setDeleted(true); setLoading(false); setRefreshing(false); return }
 
-    // Payment instructions for GCash / bank transfer
-    if (bk.payment_method === 'gcash' || bk.payment_method === 'bank_transfer') {
+    // Payment instructions for GCash / bank transfer (legacy manual flow only —
+    // under PayMongo the hosted checkout page shows all payment details).
+    if (!PAYMONGO_ENABLED && (bk.payment_method === 'gcash' || bk.payment_method === 'bank_transfer')) {
       const { data: settings } = await supabase
         .from('settings').select('key, value')
         .in('key', ['gcash_number', 'bank_accounts'])
@@ -291,6 +295,22 @@ export default function BookingDetailScreen() {
         },
       ]
     )
+  }
+
+  async function handlePayNow() {
+    if (!booking || paying) return
+    setPaying(true)
+    try {
+      const result = await startPaymongoCheckout(booking.id)
+      if (result.status === 'error') {
+        Alert.alert('Payment', result.message)
+      }
+      // Refetch either way — payment is confirmed server-side by the PayMongo
+      // webhook, so the freshly-loaded row reflects the real status.
+      await load()
+    } finally {
+      setPaying(false)
+    }
   }
 
   // ── Loading / deleted states ─────────────────────────────────────────────
@@ -520,6 +540,56 @@ export default function BookingDetailScreen() {
             </View>
           ))}
         </View>
+        {/* ── Pay Now (online-payment booking, still unpaid) ── */}
+        {PAYMONGO_ENABLED
+          && isPaymongoMethod(booking.payment_method)
+          && booking.payment_status === 'unpaid'
+          && booking.status !== 'cancelled'
+          && booking.status !== 'completed' && (
+          <View style={{
+            marginHorizontal: 16, marginBottom: 14,
+            backgroundColor: C.white, borderRadius: 18,
+            borderWidth: 1, borderColor: C.border, overflow: 'hidden',
+          }}>
+            <View style={{
+              backgroundColor: '#fff7ed', paddingHorizontal: 18, paddingVertical: 13,
+              borderBottomWidth: 1, borderBottomColor: '#fed7aa',
+              flexDirection: 'row', alignItems: 'center', gap: 10,
+            }}>
+              <Feather name="alert-circle" size={16} color="#c2410c" />
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#9a3412', flex: 1 }}>
+                Payment Required
+              </Text>
+            </View>
+            <View style={{ padding: 16, gap: 12 }}>
+              <Text style={{ fontSize: 13, color: C.textSecondary, lineHeight: 19 }}>
+                Complete your secure online payment of{' '}
+                <Text style={{ fontWeight: '800', color: C.text }}>₱{Number(booking.base_price).toLocaleString()}</Text>
+                {' '}via PayMongo to confirm this booking.
+              </Text>
+              <TouchableOpacity
+                onPress={handlePayNow}
+                disabled={paying}
+                activeOpacity={0.85}
+                style={{
+                  backgroundColor: Colors.primary, borderRadius: 12,
+                  paddingVertical: 14, flexDirection: 'row',
+                  alignItems: 'center', justifyContent: 'center', gap: 8,
+                  opacity: paying ? 0.7 : 1,
+                }}
+              >
+                {paying
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <>
+                      <Feather name="lock" size={15} color="#fff" />
+                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Pay Now</Text>
+                    </>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* ── Location ── */}
         <View style={{
           marginHorizontal: 16, marginBottom: 14, padding: 20,
@@ -918,7 +988,7 @@ function HeroContent({
         {booking.space_type === 'residential' ? 'Residential'
           : booking.space_type === 'condo' ? 'Condo'
           : booking.space_type === 'office' ? 'Office'
-          : 'Commercial'} · {booking.property_sqm} sqm
+          : 'Commercial'}{booking.property_sqm ? ` · ${booking.property_sqm} sqm` : ''}
         {booking.sofa_seaters ? ` · ${booking.sofa_seaters} sofa${booking.sofa_seaters !== 1 ? 's' : ''}` : ''}
       </Text>
 

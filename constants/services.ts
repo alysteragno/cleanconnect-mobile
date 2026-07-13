@@ -210,4 +210,9 @@ export const SERVICE_GROUPS: ServiceGroup[] = [
     categoryIcon: 'droplet',
     items: SERVICES.filter(s => s.category === 'Grease Trap'),
   },
+  {
+    category: 'General Cleaning',
+    categoryIcon: 'home',
+    items: SERVICES.filter(s => s.category === 'General Cleaning'),
+  },
 ]

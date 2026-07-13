@@ -7,7 +7,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter, useLocalSearchParams } from 'expo-router'
-import { Feather } from '@expo/vector-icons'
+import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import AppHeader from '@/components/AppHeader'
 import LocationMapPicker from '@/components/LocationMapPicker'
@@ -18,8 +18,10 @@ import GCashLogo from '@/assets/gcash_logo.svg'
 import MayaLogo from '@/assets/maya_logo.svg'
 import { ServiceType, SpaceType, SERVICE_LABELS } from '@/constants/types'
 import { getService } from '@/constants/services'
-import { estimatePrice } from '@/constants/pricing'
+import { estimatePrice, estimateBookingPrice, estimateDurationHours, serviceNeedsSqm } from '@/constants/pricing'
 import { saveDraft, loadDraft, clearDraft, saveRecentBooking } from '@/lib/bookingDraft'
+import { PAYMONGO_ENABLED } from '@/constants/config'
+import { startPaymongoCheckout, isPaymongoMethod } from '@/lib/paymongo'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as MediaLibrary from 'expo-media-library'
 import * as ImageManipulator from 'expo-image-manipulator'
@@ -70,9 +72,20 @@ function BankCheckIcon() {
   )
 }
 
+// Unified online-payment (PayMongo QRPh) icon — the customer scans one QR with
+// GCash, Maya, or any bank app on the hosted page.
+function OnlinePaymentIcon() {
+  return (
+    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name="qr-code" size={22} color="#fff" />
+    </View>
+  )
+}
+
 const PAYMENT_ICONS: Record<string, React.ReactNode> = {
   cash: <CashIcon />,
-  gcash: <WalletIcon method="gcash" />,
+  // 'gcash' is the reused value for the unified "Online Payment" (QRPh) option.
+  gcash: <OnlinePaymentIcon />,
   maya: <WalletIcon method="maya" />,
   bank_transfer: <BankIcon />,
   bank_check: <BankCheckIcon />,
@@ -274,6 +287,7 @@ type FormData = {
   carpet_count: number
   other_furniture: string
   furniture_images: string[]
+  furniture_videos: string[]
   address_unit: string
   address_street: string
   address_barangay: string
@@ -293,7 +307,7 @@ type FormData = {
 const INITIAL_FORM: FormData = {
   service_type: 'general', space_type: null, property_sqm: '', sofa_seaters: 0,
   mattress_count: 0, aircon_units: 0, carpet_count: 0,
-  other_furniture: '', furniture_images: [], address_unit: '', address_street: '',
+  other_furniture: '', furniture_images: [], furniture_videos: [], address_unit: '', address_street: '',
   address_barangay: '', address_city: '', address_province: '', service_lat: null, service_lng: null,
   service_address_label: '', service_date: null, service_time: null,
   payment_method: '', payment_reference: '', payment_proof_uri: '', special_notes: '',
@@ -318,6 +332,26 @@ const SERVICE_SLUG_TO_TYPE: Record<string, ServiceType> = {
   post_construction:        'post_construction',
 }
 
+// The 4 "General Cleaning" services are, by definition, one per property type —
+// so the specific-service choice and the Space Type choice are the same
+// decision made twice. These mappings keep the two in sync: picking a Space
+// Type while browsing generically (no slug, or already on one of these 4)
+// selects the matching service, and arriving via one of these 4 slugs
+// pre-fills the matching Space Type. This never touches specific non-general
+// services (aircon, mattress, sofa, carpet, curtain, grease trap) — for those,
+// Space Type is just supplementary context about where the job happens.
+const GENERAL_SLUG_TO_SPACE_TYPE: Record<string, SpaceType> = {
+  general_cleaning:    'residential',
+  condo_cleaning:       'condo',
+  office_cleaning:      'office',
+  commercial_cleaning:  'commercial',
+}
+const SPACE_TYPE_TO_GENERAL_SLUG: Record<SpaceType, string> = {
+  residential: 'general_cleaning',
+  condo:       'condo_cleaning',
+  office:      'office_cleaning',
+  commercial:  'commercial_cleaning',
+}
 
 const SPACE_OPTIONS: Array<{ key: SpaceType; label: string; icon: string; desc: string }> = [
   { key: 'residential', label: 'Residential', icon: 'home',     desc: 'House, townhouse' },
@@ -326,11 +360,9 @@ const SPACE_OPTIONS: Array<{ key: SpaceType; label: string; icon: string; desc: 
   { key: 'office',      label: 'Office',      icon: 'briefcase',desc: 'Office or workspace' },
 ]
 const PAYMENT_OPTIONS = [
-  { key: 'cash',          label: 'Cash',          desc: 'Pay on the day of service' },
-  { key: 'gcash',         label: 'GCash',         desc: 'Pay via GCash before service' },
-  { key: 'maya',          label: 'Maya',          desc: 'Pay via Maya before service' },
-  { key: 'bank_transfer', label: 'Bank Transfer', desc: 'Transfer to our bank account' },
-  { key: 'bank_check',    label: 'Bank Check',    desc: 'Deliver a check before service' },
+  { key: 'cash',       label: 'Cash',           desc: 'Pay on the day of service' },
+  { key: 'gcash',      label: 'Online Payment', desc: 'GCash, Maya, or any bank app via QR' },
+  { key: 'bank_check', label: 'Bank Check',     desc: 'Deliver a check before service' },
 ]
 
 const AI_STEPS = [
@@ -490,7 +522,11 @@ export default function NewBookingScreen() {
                 draftCleared.current = true
                 await clearDraft()
                 if (serviceSlug && SERVICE_SLUG_TO_TYPE[serviceSlug]) {
-                  setForm(f => ({ ...f, service_type: SERVICE_SLUG_TO_TYPE[serviceSlug!] }))
+                  setForm(f => ({
+                    ...f,
+                    service_type: SERVICE_SLUG_TO_TYPE[serviceSlug!],
+                    space_type: GENERAL_SLUG_TO_SPACE_TYPE[serviceSlug!] ?? f.space_type,
+                  }))
                 }
                 draftLoaded.current = true
                 setCheckingActive(false)
@@ -525,7 +561,11 @@ export default function NewBookingScreen() {
       draftLoaded.current = true
 
       if (serviceSlug && SERVICE_SLUG_TO_TYPE[serviceSlug]) {
-        setForm(f => ({ ...f, service_type: SERVICE_SLUG_TO_TYPE[serviceSlug!] }))
+        setForm(f => ({
+          ...f,
+          service_type: SERVICE_SLUG_TO_TYPE[serviceSlug!],
+          space_type: GENERAL_SLUG_TO_SPACE_TYPE[serviceSlug!] ?? f.space_type,
+        }))
       }
 
       setCheckingActive(false)
@@ -542,7 +582,10 @@ export default function NewBookingScreen() {
     setForm({
       ...INITIAL_FORM,
       ...(serviceSlug && SERVICE_SLUG_TO_TYPE[serviceSlug]
-        ? { service_type: SERVICE_SLUG_TO_TYPE[serviceSlug] }
+        ? {
+            service_type: SERVICE_SLUG_TO_TYPE[serviceSlug],
+            space_type: GENERAL_SLUG_TO_SPACE_TYPE[serviceSlug] ?? null,
+          }
         : {}),
     })
     setStep(1)
@@ -598,18 +641,41 @@ export default function NewBookingScreen() {
     setForm(f => ({ ...f, [key]: value }))
   }
 
-  async function pickImages() {
+  // Area-based (General Cleaning) services collect property size; unit/flat-rate
+  // services (aircon, mattress, sofa, carpet, grease trap, …) do not.
+  const needsSqm = serviceNeedsSqm(currentServiceSlug)
+
+  // Whether the Space Type picker is currently standing in for "which of the
+  // 4 General Cleaning services" (no specific service chosen yet, or already
+  // on one of those 4) — as opposed to just describing where an unrelated
+  // specific service (aircon, mattress, ...) will happen.
+  const spaceTypeDrivesService = !currentServiceSlug || !!GENERAL_SLUG_TO_SPACE_TYPE[currentServiceSlug]
+
+  function selectSpaceType(spaceType: SpaceType) {
+    setForm(f => ({ ...f, space_type: spaceType }))
+    if (spaceTypeDrivesService) setCurrentServiceSlug(SPACE_TYPE_TO_GENERAL_SLUG[spaceType])
+  }
+
+  async function pickMedia() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow access to your photo library to upload furniture photos.')
+      Alert.alert('Permission required', 'Please allow access to your photo library to upload photos and videos.')
       return
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.7, selectionLimit: 5,
+      mediaTypes: ['images', 'videos'],
+      allowsMultipleSelection: true,
+      quality: 0.7,
+      videoMaxDuration: 60,
     })
-    if (!result.canceled) {
-      update('furniture_images', [...form.furniture_images, ...result.assets.map(a => a.uri)].slice(0, 5))
-    }
+    if (result.canceled) return
+    const images = result.assets.filter(a => a.type === 'image').map(a => a.uri)
+    const videos = result.assets.filter(a => a.type === 'video').map(a => a.uri)
+    setForm(f => ({
+      ...f,
+      furniture_images: [...f.furniture_images, ...images],
+      furniture_videos: [...f.furniture_videos, ...videos],
+    }))
   }
 
   async function pickProof() {
@@ -625,7 +691,7 @@ export default function NewBookingScreen() {
   function validateStep(): { title: string; message: string } | null {
     if (step === 1) {
       if (!form.space_type) return { title: 'Space required', message: 'Please select a space type.' }
-      if (!form.property_sqm || isNaN(Number(form.property_sqm)) || Number(form.property_sqm) <= 0)
+      if (needsSqm && (!form.property_sqm || isNaN(Number(form.property_sqm)) || Number(form.property_sqm) <= 0))
         return { title: 'Invalid size', message: 'Please enter a valid property size in sqm.' }
       if (form.furniture_images.length === 0)
         return { title: 'Photos required', message: 'Please upload at least one photo of the area or furniture to be cleaned.' }
@@ -652,7 +718,9 @@ export default function NewBookingScreen() {
     if (step === 5) {
       if (!form.payment_method) return { title: 'Payment required', message: 'Please select a payment method to continue.' }
     }
-    if (step === 6) {
+    if (step === 6 && !PAYMONGO_ENABLED) {
+      // Legacy manual flow — reference number + proof screenshot are collected
+      // in-app. Under PayMongo these are handled on the hosted checkout page.
       if (form.payment_method === 'gcash') {
         if (!/^\d{13}$/.test(form.payment_reference))
           return { title: 'Invalid reference', message: 'GCash reference must be exactly 13 digits.' }
@@ -752,6 +820,36 @@ export default function NewBookingScreen() {
       return supabase.storage.from(bucket).getPublicUrl(fullPath).data.publicUrl
     }
 
+    // Videos are streamed straight from disk (no base64 in JS memory, no image
+    // conversion) via the Storage REST endpoint using the user's access token.
+    async function uploadVideoToStorage(uri: string, filename: string): Promise<string | null> {
+      const ext = (uri.split('?')[0].split('.').pop() || 'mp4').toLowerCase()
+      const contentType = ext === 'mov' ? 'video/quicktime' : ext === 'webm' ? 'video/webm' : 'video/mp4'
+      const fullPath = `${user!.id}/${filename}.${ext}`
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) return null
+      try {
+        const res = await FileSystem.uploadAsync(
+          `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/furniture-photos/${fullPath}`,
+          uri,
+          {
+            httpMethod: 'POST',
+            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+            headers: { Authorization: `Bearer ${token}`, 'content-type': contentType, 'x-upsert': 'false' },
+          },
+        )
+        if (res.status !== 200 && res.status !== 201) {
+          console.error(`[video upload] ${fullPath}:`, res.status, res.body)
+          return null
+        }
+        return supabase.storage.from('furniture-photos').getPublicUrl(fullPath).data.publicUrl
+      } catch (e: any) {
+        console.error('[video upload] error:', e?.message)
+        return null
+      }
+    }
+
     const uploadedUrls: string[] = []
     for (const uri of form.furniture_images) {
       const url = await uploadToStorage(
@@ -762,6 +860,13 @@ export default function NewBookingScreen() {
       if (url) uploadedUrls.push(url)
     }
 
+    const uploadedVideoUrls: string[] = []
+    for (const uri of form.furniture_videos) {
+      const url = await uploadVideoToStorage(uri, `video-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      if (url) uploadedVideoUrls.push(url)
+    }
+    const allMedia = [...uploadedUrls, ...uploadedVideoUrls]
+
     let payment_proof_url: string | null = null
     if (form.payment_proof_uri) {
       payment_proof_url = await uploadToStorage(
@@ -771,7 +876,7 @@ export default function NewBookingScreen() {
       )
     }
 
-    const sqm = parseFloat(form.property_sqm)
+    const sqm = needsSqm ? parseFloat(form.property_sqm) : 0
 
     const serviceDetails: string[] = []
     if (currentServiceSlug === 'mattress_deep_cleaning' && form.mattress_count > 0)
@@ -787,10 +892,10 @@ export default function NewBookingScreen() {
       service_name: getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type ?? 'general'],
       service_slug: currentServiceSlug ?? null,
       space_type: form.space_type,
-      property_sqm: sqm,
+      property_sqm: needsSqm ? sqm : null,
       sofa_seaters: currentServiceSlug === 'sofa_couch_deep_cleaning' && form.sofa_seaters > 0 ? form.sofa_seaters : null,
       other_furniture: combinedFurniture || null,
-      furniture_images: uploadedUrls.length > 0 ? uploadedUrls : null,
+      furniture_images: allMedia.length > 0 ? allMedia : null,
       address_unit: form.address_unit || null,
       address_street: form.address_street,
       address_barangay: form.address_barangay || null,
@@ -806,9 +911,9 @@ export default function NewBookingScreen() {
       special_notes: form.special_notes || null,
       status: 'pending',
       payment_status: 'unpaid',
-      base_price: estimatePrice(form.service_type!, sqm),
+      base_price: estimateBookingPrice(currentServiceSlug, form.service_type!, sqm),
       required_cleaners: 1,
-      duration_hours: Math.max(1, Math.ceil(sqm / 30)),
+      duration_hours: estimateDurationHours(currentServiceSlug, sqm),
     }).select('id').single()
 
     setSubmitting(false)
@@ -821,6 +926,22 @@ export default function NewBookingScreen() {
       service_type: form.service_type ?? 'general',
       service_date: toDateString(form.service_date!),
     })
+
+    // Online payment → collect now via PayMongo hosted checkout. Cash (on-site)
+    // and bank check (physical, admin-verified) skip PayMongo entirely.
+    if (PAYMONGO_ENABLED && isPaymongoMethod(form.payment_method)) {
+      const result = await startPaymongoCheckout(data.id)
+      if (result.status === 'error') {
+        Alert.alert(
+          'Payment could not start',
+          `${result.message}\n\nYour booking has been created — you can complete payment anytime from the booking details screen.`,
+        )
+      }
+      // 'opened' / 'already_paid' fall through: the booking detail screen
+      // observes the booking row (realtime + polling) and reflects the
+      // webhook-confirmed payment status.
+    }
+
     router.replace(`/(customer)/bookings/${data.id}`)
   }
 
@@ -1029,16 +1150,21 @@ export default function NewBookingScreen() {
               )
             })()}
             <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                 <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Space Type</Text>
               </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {spaceTypeDrivesService && (
+                <Text style={{ fontSize: 11, color: C.textSecondary, marginBottom: 10, lineHeight: 16 }}>
+                  Picks your General Cleaning service — Residential, Condo, Office, or Commercial.
+                </Text>
+              )}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: spaceTypeDrivesService ? 0 : 8 }}>
                 {SPACE_OPTIONS.map(o => {
                   const selected = form.space_type === o.key
                   return (
                     <TouchableOpacity
-                      key={o.key} onPress={() => update('space_type', o.key)}
+                      key={o.key} onPress={() => selectSpaceType(o.key)}
                       style={{
                         width: '47%', padding: 14, borderRadius: 12, borderWidth: 1.5,
                         borderColor: selected ? Colors.primary : C.border,
@@ -1067,6 +1193,7 @@ export default function NewBookingScreen() {
               </View>
             </View>
 
+            {needsSqm && (
             <View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
@@ -1087,6 +1214,7 @@ export default function NewBookingScreen() {
                 </View>
               )}
             </View>
+            )}
 
             {currentServiceSlug === 'sofa_couch_deep_cleaning' && (
               <CountStepper
@@ -1148,12 +1276,14 @@ export default function NewBookingScreen() {
             <View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                 <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: Colors.primary }} />
-                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Furniture / Area Photos</Text>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Furniture / Area Photos & Video</Text>
                 <RequiredBadge C={C} />
               </View>
               <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 10 }}>
-                Upload photos of the area/furniture so our admin can verify and confirm the service rate. Up to 5 photos.
+                Upload photos of the area/furniture so our admin can verify and confirm the service rate. Add as many as you need — you can also attach a short video.
               </Text>
+
+              {/* Photo previews */}
               {form.furniture_images.length > 0 && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                   {form.furniture_images.map((uri, i) => (
@@ -1169,22 +1299,44 @@ export default function NewBookingScreen() {
                   ))}
                 </View>
               )}
-              {form.furniture_images.length < 5 && (
-                <TouchableOpacity
-                  onPress={pickImages}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed',
-                    borderColor: form.furniture_images.length === 0 ? Colors.primary : C.border,
-                    backgroundColor: form.furniture_images.length === 0 ? C.primaryBg : C.background,
-                  }}
-                >
-                  <Feather name="camera" size={18} color={form.furniture_images.length === 0 ? Colors.primary : C.textMuted} />
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: form.furniture_images.length === 0 ? Colors.primary : C.textSecondary }}>
-                    {form.furniture_images.length === 0 ? 'Upload Photos (Required)' : 'Add More Photos'}
-                  </Text>
-                </TouchableOpacity>
+
+              {/* Video previews */}
+              {form.furniture_videos.length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  {form.furniture_videos.map((uri, i) => (
+                    <View key={uri} style={{ position: 'relative' }}>
+                      <View style={{ width: 80, height: 80, borderRadius: 10, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' }}>
+                        <Feather name="play-circle" size={26} color="#fff" />
+                        <View style={{ position: 'absolute', bottom: 5, left: 6, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <Feather name="video" size={9} color="rgba(255,255,255,0.85)" />
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.85)' }}>Video</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => update('furniture_videos', form.furniture_videos.filter((_, idx) => idx !== i))}
+                        style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11, backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Feather name="x" size={12} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
               )}
+
+              <TouchableOpacity
+                onPress={pickMedia}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed',
+                  borderColor: form.furniture_images.length === 0 ? Colors.primary : C.border,
+                  backgroundColor: form.furniture_images.length === 0 ? C.primaryBg : C.background,
+                }}
+              >
+                <Feather name="camera" size={18} color={form.furniture_images.length === 0 ? Colors.primary : C.textMuted} />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: form.furniture_images.length === 0 ? Colors.primary : C.textSecondary }}>
+                  {form.furniture_images.length === 0 && form.furniture_videos.length === 0 ? 'Upload Photos / Video (Photo Required)' : 'Add More Photos / Video'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -1410,8 +1562,9 @@ export default function NewBookingScreen() {
               const svcAccent = svcDef?.accent ?? Colors.primary
               const svcCat    = (svcDef?.category ?? '').toUpperCase()
               const svcIcon   = (svcDef?.placeholderIcon ?? 'home') as React.ComponentProps<typeof Feather>['name']
-              const estPrice  = estimatePrice(form.service_type!, parseFloat(form.property_sqm) || 0)
-              const estHours  = Math.max(1, Math.ceil((parseFloat(form.property_sqm) || 0) / 30))
+              const sqmVal    = needsSqm ? (parseFloat(form.property_sqm) || 0) : 0
+              const estPrice  = estimateBookingPrice(currentServiceSlug, form.service_type!, sqmVal)
+              const estHours  = estimateDurationHours(currentServiceSlug, sqmVal)
               const spaceLabel =
                 form.space_type === 'residential' ? 'Residential'
                   : form.space_type === 'condo' ? 'Condo'
@@ -1460,7 +1613,7 @@ export default function NewBookingScreen() {
                     {svcName}
                   </Text>
                   <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', marginBottom: 18 }}>
-                    {spaceLabel} · {form.property_sqm} sqm
+                    {spaceLabel}{needsSqm && form.property_sqm ? ` · ${form.property_sqm} sqm` : ''}
                     {extras ? ` · ${extras}` : ''}
                   </Text>
 
@@ -1563,7 +1716,7 @@ export default function NewBookingScreen() {
             </View>
 
             {/* ── Extra details (if any) ── */}
-            {(form.other_furniture.trim() || form.furniture_images.length > 0 || form.special_notes.trim()) && (
+            {(form.other_furniture.trim() || form.furniture_images.length > 0 || form.furniture_videos.length > 0 || form.special_notes.trim()) && (
               <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.background, paddingHorizontal: 16, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: C.border }}>
                   <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(219,39,119,0.15)', alignItems: 'center', justifyContent: 'center' }}>
@@ -1572,13 +1725,13 @@ export default function NewBookingScreen() {
                   <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Additional Details</Text>
                 </View>
                 {form.other_furniture.trim() ? (
-                  <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: form.furniture_images.length > 0 || form.special_notes.trim() ? 1 : 0, borderBottomColor: C.borderLight }}>
+                  <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: form.furniture_images.length > 0 || form.furniture_videos.length > 0 || form.special_notes.trim() ? 1 : 0, borderBottomColor: C.borderLight }}>
                     <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 3 }}>Items / Details</Text>
                     <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{form.other_furniture.trim()}</Text>
                   </View>
                 ) : null}
                 {form.furniture_images.length > 0 ? (
-                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderBottomWidth: form.special_notes.trim() ? 1 : 0, borderBottomColor: C.borderLight }}>
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderBottomWidth: form.furniture_videos.length > 0 || form.special_notes.trim() ? 1 : 0, borderBottomColor: C.borderLight }}>
                     <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
                       Photos · {form.furniture_images.length} {form.furniture_images.length !== 1 ? 'images' : 'image'}
                     </Text>
@@ -1590,6 +1743,20 @@ export default function NewBookingScreen() {
                           style={{ width: 90, height: 90, borderRadius: 12, backgroundColor: C.borderLight }}
                           resizeMode="cover"
                         />
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {form.furniture_videos.length > 0 ? (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderBottomWidth: form.special_notes.trim() ? 1 : 0, borderBottomColor: C.borderLight }}>
+                    <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
+                      Videos · {form.furniture_videos.length} {form.furniture_videos.length !== 1 ? 'videos' : 'video'}
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                      {form.furniture_videos.map((_uri, i) => (
+                        <View key={i} style={{ width: 90, height: 90, borderRadius: 12, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' }}>
+                          <Feather name="play-circle" size={28} color="#fff" />
+                        </View>
                       ))}
                     </ScrollView>
                   </View>
@@ -1754,10 +1921,10 @@ export default function NewBookingScreen() {
             <View style={{ backgroundColor: '#f0fdf4', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#bbf7d0' }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803d', marginBottom: 4 }}>Booking Summary</Text>
               <Text style={{ fontSize: 13, color: '#166534' }}>
-                {getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type!]} · {form.property_sqm} sqm · {form.service_date ? formatDisplayDate(form.service_date) : ''} at {form.service_time ? formatDisplayTime(form.service_time) : ''}
+                {getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type!]}{needsSqm && form.property_sqm ? ` · ${form.property_sqm} sqm` : ''} · {form.service_date ? formatDisplayDate(form.service_date) : ''} at {form.service_time ? formatDisplayTime(form.service_time) : ''}
               </Text>
               <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803d', marginTop: 6 }}>
-                Est. Price: ₱{estimatePrice(form.service_type!, parseFloat(form.property_sqm)).toLocaleString()}
+                Est. Price: ₱{estimateBookingPrice(currentServiceSlug, form.service_type!, needsSqm ? parseFloat(form.property_sqm) || 0 : 0).toLocaleString()}
               </Text>
             </View>
 
@@ -1810,7 +1977,49 @@ export default function NewBookingScreen() {
               </View>
             </View>
 
-            {(isWallet(form.payment_method) || form.payment_method === 'bank_transfer') && (
+            {/* ── PayMongo online payment (QRPh — gcash/maya/bank_transfer) ── */}
+            {PAYMONGO_ENABLED && isPaymongoMethod(form.payment_method) && (
+              <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 18, gap: 14 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' }}>
+                    <Feather name="shield" size={20} color={Colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: C.text }}>Secure Online Payment</Text>
+                    <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 1 }}>Powered by PayMongo</Text>
+                  </View>
+                </View>
+
+                <View style={{ height: 1, backgroundColor: C.borderLight }} />
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 13, color: C.textSecondary }}>Amount to pay</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>
+                    ₱{estimateBookingPrice(currentServiceSlug, form.service_type!, needsSqm ? parseFloat(form.property_sqm) || 0 : 0).toLocaleString()}
+                  </Text>
+                </View>
+
+                {[
+                  'Tap "Confirm Booking" to create your booking and open the secure payment page.',
+                  'Pay with GCash, Maya, or any bank app by scanning the on-screen QR.',
+                  'Your booking updates to "Paid" automatically once payment goes through.',
+                ].map((line, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+                    <Feather name="check-circle" size={14} color="#16a34a" style={{ marginTop: 2 }} />
+                    <Text style={{ flex: 1, fontSize: 12, color: C.textSecondary, lineHeight: 18 }}>{line}</Text>
+                  </View>
+                ))}
+
+                <View style={{ backgroundColor: C.background, borderRadius: 10, padding: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                  <Feather name="info" size={13} color={C.textMuted} style={{ marginTop: 1 }} />
+                  <Text style={{ flex: 1, fontSize: 11, color: C.textMuted, lineHeight: 16 }}>
+                    You can also pay later from your booking details if you close the payment page.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {!PAYMONGO_ENABLED && (isWallet(form.payment_method) || form.payment_method === 'bank_transfer') && (
               <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 16, gap: 14 }}>
 
                 {/* Payment destination */}
@@ -1951,6 +2160,7 @@ export default function NewBookingScreen() {
               </View>
             )}
 
+            {/* Bank Check is always a manual, off-platform method — never PayMongo. */}
             {form.payment_method === 'bank_check' && (
               <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 16, gap: 12 }}>
                 <View style={{ backgroundColor: '#eff6ff', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#bfdbfe', gap: 12 }}>
