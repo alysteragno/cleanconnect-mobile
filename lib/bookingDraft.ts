@@ -13,6 +13,7 @@ export type StoredDraft = {
     carpet_count: number
     other_furniture: string
     furniture_images: string[]
+    furniture_videos: string[]
     address_unit: string
     address_street: string
     address_city: string

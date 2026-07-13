@@ -45,7 +45,7 @@ type Booking = {
   space_type: string;
   service_date: string;
   service_time: string;
-  property_sqm: number;
+  property_sqm: number | null;
   base_price: number;
   duration_hours: number;
   address_unit: string | null;

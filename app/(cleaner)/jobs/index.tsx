@@ -22,7 +22,7 @@ type Assignment = {
     service_name: string | null
     service_date: string
     service_time: string
-    property_sqm: number
+    property_sqm: number | null
     base_price: number
     duration_hours: number
     address_unit: string | null
@@ -215,7 +215,7 @@ export default function CleanerJobsScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Feather name="home" size={13} color={C.textMuted} />
                   <Text style={{ fontSize: 13, color: C.textSecondary }}>
-                    {b?.property_sqm} sqm · ~{b?.duration_hours}h
+                    {b?.property_sqm ? `${b.property_sqm} sqm · ` : ''}~{b?.duration_hours}h
                   </Text>
                 </View>
                 {address ? (

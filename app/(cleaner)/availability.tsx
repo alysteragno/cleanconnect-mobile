@@ -20,7 +20,7 @@ type ScheduleItem = {
     service_slug: string
     service_date: string
     service_time: string
-    property_sqm: number
+    property_sqm: number | null
     address_city: string | null
     status: string
   }
@@ -595,7 +595,7 @@ export default function CleanerScheduleScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{getService(item.bookings?.service_slug)?.name ?? item.bookings?.service_slug ?? 'Cleaning Service'}</Text>
                       <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 2 }}>
-                        {formatTime(item.bookings?.service_time)} · {item.bookings?.property_sqm} sqm
+                        {formatTime(item.bookings?.service_time)}{item.bookings?.property_sqm ? ` · ${item.bookings.property_sqm} sqm` : ''}
                       </Text>
                       {item.bookings?.address_city && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>

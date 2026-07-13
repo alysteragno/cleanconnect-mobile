@@ -61,7 +61,7 @@ export type Booking = {
   space_type: SpaceType
   service_date: string
   service_time: string
-  property_sqm: number
+  property_sqm: number | null
   sofa_seaters: number | null
   required_cleaners: number
   duration_hours: number

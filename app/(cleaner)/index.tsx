@@ -29,7 +29,7 @@ type JobOffer = {
     space_type: string | null;
     service_date: string;
     service_time: string;
-    property_sqm: number;
+    property_sqm: number | null;
     base_price: number;
     duration_hours: number | null;
     address_city: string | null;
@@ -370,7 +370,7 @@ export default function CleanerHomeScreen() {
                         serviceDate={bk?.service_date ?? ""}
                         serviceTime={bk?.service_time ?? ""}
                         basePrice={bk?.base_price ?? 0}
-                        propertySqm={bk?.property_sqm ?? 0}
+                        propertySqm={bk?.property_sqm ?? null}
                         durationHours={bk?.duration_hours}
                         paymentMethod={bk?.payment_method}
                         addressUnit={bk?.address_unit}

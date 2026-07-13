@@ -68,7 +68,7 @@ type Props = {
   serviceDate: string
   serviceTime: string
   basePrice: number
-  propertySqm: number
+  propertySqm: number | null
   durationHours?: number | null
   addressUnit?: string | null
   addressStreet?: string | null
@@ -203,10 +203,12 @@ export default function AssignedJobCard({
             <Text style={{ fontSize: 11, color: C.textSecondary, fontWeight: '500' }}>{addressCity}</Text>
           </View>
         )}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.background, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5 }}>
-          <Feather name="maximize" size={10} color={C.textSecondary} />
-          <Text style={{ fontSize: 11, color: C.textSecondary, fontWeight: '500' }}>{propertySqm} sqm</Text>
-        </View>
+        {propertySqm ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.background, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Feather name="maximize" size={10} color={C.textSecondary} />
+            <Text style={{ fontSize: 11, color: C.textSecondary, fontWeight: '500' }}>{propertySqm} sqm</Text>
+          </View>
+        ) : null}
         {durationHours != null && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.background, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5 }}>
             <Feather name="clock" size={10} color={C.textSecondary} />
