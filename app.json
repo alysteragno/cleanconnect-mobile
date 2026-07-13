@@ -51,7 +51,8 @@
           "cameraPermission": "Maid For You Cleaning Services needs camera access to take photos of furniture for your booking."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ],
     "extra": {
       "router": {},
