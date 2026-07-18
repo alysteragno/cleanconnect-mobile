@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
-import { getService } from '@/constants/services'
+import { useServices } from '@/hooks/useServices'
 import AppHeader from '@/components/AppHeader'
 
 type ScheduleItem = {
@@ -326,6 +326,7 @@ function RequestForm({ visible, date, onClose, onSubmit, submitting, C }: {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function CleanerScheduleScreen() {
   const router   = useRouter()
+  const { getService } = useServices()
   const C        = useThemeColors()
   const { isDark } = useTheme()
   const [tab, setTab] = useState<'schedule' | 'dayoffs'>('schedule')

@@ -279,6 +279,25 @@ export default function CustomerProfileScreen() {
           </View>
         </View>
 
+        {/* Legal */}
+        <TouchableOpacity
+          onPress={() => router.push('/privacy-policy')}
+          style={{
+            backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border,
+            paddingHorizontal: 16, paddingVertical: 14,
+            flexDirection: 'row', alignItems: 'center', gap: 12,
+          }}
+        >
+          <View style={{
+            width: 34, height: 34, borderRadius: 10,
+            backgroundColor: 'rgba(219,39,119,0.15)', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Feather name="shield" size={16} color={Colors.primary} />
+          </View>
+          <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: C.text }}>Privacy Policy</Text>
+          <Feather name="chevron-right" size={18} color={C.textMuted} />
+        </TouchableOpacity>
+
         <TouchableOpacity
           onPress={signOut}
           style={{

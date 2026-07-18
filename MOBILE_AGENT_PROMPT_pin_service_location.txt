@@ -1,0 +1,35 @@
+Revise and properly finish a feature that was drafted from the cleanconnect-web side (cross-repo edit, not tested in a real Expo/RN environment): letting a customer pin their exact GPS location on an EXISTING booking that was created without one, and reviewing whether the draft handles all the edge cases a mobile-native session would catch.
+
+CONTEXT — why this exists
+
+On the web admin side, the "New Booking" form (phone-in/walk-in bookings created by staff on a customer's behalf) no longer has a map/pin picker — it was removed as redundant next to the structured address fields (unit/street/barangay/city/province). That means bookings created this way now have `service_lat` / `service_lng` = null.
+
+Those columns are NOT cosmetic on your side:
+- `app/(cleaner)/jobs/[id].tsx:581-587, 846-853` — the cleaner's job detail screen only shows a map pin + "Get Directions" button when `service_lat`/`service_lng` are present. Null = no pin, no directions, cleaner just sees the raw text address.
+- `app/(cleaner)/jobs/[id].tsx:283-290` — the "I've arrived" flow does a haversine geofence check against `service_lat`/`service_lng` before letting the cleaner proceed. If null, that guard is silently skipped — no arrival validation happens at all.
+- `lib/ai-assignment.ts` (web side) uses it as a proximity-scoring fallback for AI dispatch.
+
+So for bookings created without a pin, the plan is: prompt the customer (who has an account/app, unlike a brand-new walk-in customer who hasn't set a password yet) to open the booking in the app and pin their location themselves — their device GPS is far more accurate than geocoding a typed address anyway.
+
+## What's already been drafted (needs your review, not a blind re-implementation)
+
+In `app/(customer)/bookings/[id].tsx`:
+- Imported the existing `LocationMapPicker` component (`components/LocationMapPicker.tsx`) — the same GPS pin-drop modal already used in the new-booking flow (`app/(customer)/bookings/new.tsx:1390`). No new map component was built.
+- Added `showLocationPicker` / `savingLocation` state.
+- Added `handleConfirmLocation(coord, address, city, parts)` — on confirm, does `supabase.from('bookings').update({ service_lat, service_lng }).eq('id', booking.id).eq('customer_id', user.id)`, matching the RLS-scoped direct-write pattern the cancel flow already uses in this same file (search `.update({ status: 'cancelled' })` a few hundred lines up). Only coordinates are written — the existing address text fields are left alone since the admin already entered them.
+- Added a "Pin your exact location" button inside the "Service Location" card, shown only when `!booking.service_lat`.
+- Rendered `<LocationMapPicker visible={showLocationPicker} onConfirm={handleConfirmLocation} onClose={...} />` near the bottom of the JSX, alongside the existing `JobLocationModal` for the cleaner's own location.
+- `npx tsc --noEmit` was run and passed (only pre-existing, unrelated errors remain elsewhere in the repo) — but this was NOT run in Expo/on a simulator or device, so the actual native map/location-permission behavior is unverified.
+
+## Web-side notification (already shipped, cleanconnect-web `src/app/actions/admin.ts`)
+
+When `createManualBooking` inserts a booking with `service_lat`/`service_lng` both null, it now also sends a second notification (type `'info'`, title "Pin Your Service Location") telling the customer to open the app and pin their location. `notifications` has no tap-to-navigate wiring in `app/(customer)/notifications.tsx` today — the row is inert, just informational — so the customer has to find the booking themselves via the Bookings tab. Flagging in case you think that's worth fixing as part of this pass (deep-link on tap → booking detail).
+
+## Ask — things a mobile-native session should verify/fix that a cross-repo edit can't reliably check
+
+1. Run it for real: open a booking that has no `service_lat` on a simulator/device, confirm the button appears, the picker opens, GPS permission prompt behaves correctly, confirming actually persists and the UI updates (there's a Realtime subscription on this screen that should auto-refresh after the row updates — confirm it actually does, don't just trust the code read).
+2. Status gating: right now the "Pin your exact location" button shows for a booking with no `service_lat` regardless of `booking.status`. Decide whether it should be hidden for `completed`/`cancelled` bookings (pinning a location for a job that's already done or cancelled is pointless) and adjust the condition if so.
+3. Confirm `LocationMapPicker`'s existing permission handling / Android vs iOS behavior works when entered from this screen, not just from the new-booking wizard — it wasn't originally built with this entry point in mind.
+4. Decide if `notifications.tsx` should deep-link on tap (currently rows aren't even touchable) so the "Pin Your Service Location" notification actually takes the customer to the right booking, rather than relying on them to browse for it.
+5. Double check RLS actually allows this update in practice (`schema.sql:204-205`, `"Customers manage own bookings" ON bookings FOR ALL USING (auth.uid() = customer_id)`) — should be fine since it's the same pattern as the existing cancel-booking write in this file, but confirm against the live Supabase project, not just the checked-in schema.sql (this repo's own docs note schema.sql can drift from the live DB).
+6. General code review of the diff in `app/(customer)/bookings/[id].tsx` for style/pattern consistency with the rest of the file — it was written by an agent that hadn't seen the mobile codebase's conventions beyond grep results.

@@ -13,15 +13,17 @@ import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
 import JobLocationModal from '@/components/JobLocationModal'
+import LocationMapPicker, { Coord, GeocodedParts } from '@/components/LocationMapPicker'
 import {
   Booking, BookingStatus, Feedback,
   STATUS_LABELS,
 } from '@/constants/types'
-import { getService } from '@/constants/services'
+import { useServices } from '@/hooks/useServices'
 import { PAYMONGO_ENABLED } from '@/constants/config'
 import { startPaymongoCheckout, isPaymongoMethod } from '@/lib/paymongo'
 import GCashLogo from '@/assets/gcash_logo.svg'
 import MayaLogo from '@/assets/maya_logo.svg'
+import QrphLogo from '@/assets/qrph_logo.svg'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +101,7 @@ function fmtCreatedAt(iso: string) {
 export default function BookingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router  = useRouter()
+  const { getService } = useServices()
   const C       = useThemeColors()
   const { isDark } = useTheme()
 
@@ -113,6 +116,8 @@ export default function BookingDetailScreen() {
   const [refreshing,       setRefreshing]       = useState(false)
   const [cancelling,       setCancelling]       = useState(false)
   const [paying,           setPaying]           = useState(false)
+  const [showLocationPicker, setShowLocationPicker] = useState(false)
+  const [savingLocation,     setSavingLocation]     = useState(false)
   const scrollRef = useRef<ScrollView>(null)
   const [kbHeight, setKbHeight] = useState(0)
 
@@ -128,6 +133,7 @@ export default function BookingDetailScreen() {
   const [assignedCleaners, setAssignedCleaners] = useState<Array<{
     id: string
     name: string | null
+    photoUrl: string | null
     eta: { distKm: number; etaMin: number } | null
     location: { lat: number; lng: number } | null
   }>>([])
@@ -164,7 +170,7 @@ export default function BookingDetailScreen() {
   async function load() {
     const { data: bk } = await supabase
       .from('bookings')
-      .select('*, cleaner_assignments(status, cleaner_id)')
+      .select('*, cleaner_assignments(status, cleaner_id, en_route_lat, en_route_lng, en_route_at)')
       .eq('id', id)
       .maybeSingle()
 
@@ -188,21 +194,23 @@ export default function BookingDetailScreen() {
       setExistingFeedback(fb as Feedback | null)
     }
 
-    // Fetch all assigned cleaners — each row has a distinct cleaner_id
-    const assignedIds: string[] = ((bk.cleaner_assignments as any[]) ?? [])
+    // Fetch all assigned cleaners — each row has a distinct cleaner_id.
+    // Location comes from the assignment's own en-route geotag (captured
+    // once, when the cleaner taps "Start Trip"), not profiles.home_lat/lng —
+    // that column is the admin-set static home address, a different thing.
+    const assignedRows: any[] = ((bk.cleaner_assignments as any[]) ?? [])
       .filter((a: any) => a.cleaner_id && a.status !== 'declined')
-      .map((a: any) => a.cleaner_id as string)
 
-    if (assignedIds.length > 0) {
-      const cleaners = await Promise.all(assignedIds.map(async (cId) => {
-        const { data: profile } = await supabase.from('profiles').select('full_name, home_lat, home_lng').eq('id', cId).maybeSingle()
-        const cLat = (profile as any)?.home_lat
-        const cLng = (profile as any)?.home_lng
-        const location = cLat && cLng ? { lat: cLat, lng: cLng } : null
+    if (assignedRows.length > 0) {
+      const cleaners = await Promise.all(assignedRows.map(async (a: any) => {
+        const { data: profile } = await supabase.from('profiles').select('full_name, photo_url').eq('id', a.cleaner_id).maybeSingle()
+        const cLat = a.en_route_lat
+        const cLng = a.en_route_lng
+        const location = cLat != null && cLng != null ? { lat: cLat, lng: cLng } : null
         const eta = location && bk.service_lat && bk.service_lng
           ? (() => { const d = haversineKm(cLat, cLng, bk.service_lat, bk.service_lng); return { distKm: d, etaMin: Math.round(d / 30 * 60) } })()
           : null
-        return { id: cId, name: (profile as any)?.full_name ?? null, eta, location }
+        return { id: a.cleaner_id as string, name: (profile as any)?.full_name ?? null, photoUrl: (profile as any)?.photo_url ?? null, eta, location }
       }))
       setAssignedCleaners(cleaners)
     } else {
@@ -310,6 +318,33 @@ export default function BookingDetailScreen() {
       await load()
     } finally {
       setPaying(false)
+    }
+  }
+
+  // Bookings created by an admin (phone-in/walk-in) don't get a GPS pin at
+  // creation time — only the customer's own device can set one accurately.
+  // Reuses the same picker as the new-booking flow; only the coordinates are
+  // saved here since the address fields were already entered by the admin.
+  async function handleConfirmLocation(coord: Coord, _address: string, _city: string, _parts: GeocodedParts) {
+    if (!booking) return
+    setSavingLocation(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated.')
+
+      const { error } = await supabase
+        .from('bookings')
+        .update({ service_lat: coord.latitude, service_lng: coord.longitude })
+        .eq('id', booking.id)
+        .eq('customer_id', user.id)
+      if (error) throw error
+
+      setShowLocationPicker(false)
+      await load()
+    } catch (err: any) {
+      Alert.alert('Couldn\'t save location', err?.message ?? 'Please try again.')
+    } finally {
+      setSavingLocation(false)
     }
   }
 
@@ -501,28 +536,38 @@ export default function BookingDetailScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
             <Text style={{ flex: 1, fontSize: 13, color: C.textSecondary }}>Method</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {booking.payment_method === 'gcash' && (
+              {PAYMONGO_ENABLED && isPaymongoMethod(booking.payment_method) ? (
                 <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.borderLight, overflow: 'hidden' }}>
-                  <GCashLogo width={28} height={28} />
+                  <QrphLogo width={28} height={28} />
                 </View>
-              )}
-              {booking.payment_method === 'maya' && (
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#0a1628', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  <MayaLogo width={26} height={8} />
-                </View>
+              ) : (
+                <>
+                  {booking.payment_method === 'gcash' && (
+                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.borderLight, overflow: 'hidden' }}>
+                      <GCashLogo width={28} height={28} />
+                    </View>
+                  )}
+                  {booking.payment_method === 'maya' && (
+                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#0a1628', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      <MayaLogo width={26} height={8} />
+                    </View>
+                  )}
+                  {booking.payment_method === 'bank_transfer' && (
+                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#1d4ed8', alignItems: 'center', justifyContent: 'center' }}>
+                      <Feather name="home" size={18} color="#fff" />
+                    </View>
+                  )}
+                </>
               )}
               {booking.payment_method === 'cash' && (
                 <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800' }}>₱</Text>
                 </View>
               )}
-              {booking.payment_method === 'bank_transfer' && (
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#1d4ed8', alignItems: 'center', justifyContent: 'center' }}>
-                  <Feather name="home" size={18} color="#fff" />
-                </View>
-              )}
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>
-                {PAYMENT_LABELS[booking.payment_method] ?? booking.payment_method}
+                {PAYMONGO_ENABLED && isPaymongoMethod(booking.payment_method)
+                  ? 'Online Payment'
+                  : PAYMENT_LABELS[booking.payment_method] ?? booking.payment_method}
               </Text>
             </View>
           </View>
@@ -624,6 +669,32 @@ export default function BookingDetailScreen() {
                   </Text>
                 </View>
               ) : null}
+              {!booking.service_lat && booking.status !== 'completed' && booking.status !== 'cancelled' && (
+                <View>
+                  <TouchableOpacity
+                    onPress={() => setShowLocationPicker(true)}
+                    disabled={savingLocation}
+                    activeOpacity={0.85}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      backgroundColor: Colors.primary + '12', borderRadius: 12,
+                      borderWidth: 1, borderColor: Colors.primary + '30',
+                      paddingVertical: 12, opacity: savingLocation ? 0.6 : 1,
+                    }}
+                  >
+                    {savingLocation
+                      ? <ActivityIndicator size="small" color={Colors.primary} />
+                      : <Feather name="map-pin" size={15} color={Colors.primary} />
+                    }
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary }}>
+                      Pin your exact location
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 15 }}>
+                    Help your cleaner find you faster — pin your location using GPS for more accuracy than the typed address.
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -636,15 +707,22 @@ export default function BookingDetailScreen() {
             backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
           }}>
             <View style={{ padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-              <View style={{
-                width: 52, height: 52, borderRadius: 26,
-                backgroundColor: '#f1f5f9',
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Text style={{ fontSize: 22, fontWeight: '800', color: '#475569' }}>
-                  {(cleaner.name ?? '?').charAt(0).toUpperCase()}
-                </Text>
-              </View>
+              {cleaner.photoUrl ? (
+                <Image
+                  source={{ uri: cleaner.photoUrl }}
+                  style={{ width: 52, height: 52, borderRadius: 26 }}
+                />
+              ) : (
+                <View style={{
+                  width: 52, height: 52, borderRadius: 26,
+                  backgroundColor: '#f1f5f9',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Text style={{ fontSize: 22, fontWeight: '800', color: '#475569' }}>
+                    {(cleaner.name ?? '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
                   Assigned Cleaner
@@ -921,6 +999,12 @@ export default function BookingDetailScreen() {
           onClose={() => setCleanerMapModal(null)}
         />
       )}
+
+      <LocationMapPicker
+        visible={showLocationPicker}
+        onConfirm={handleConfirmLocation}
+        onClose={() => setShowLocationPicker(false)}
+      />
     </View>
   )
 }
@@ -1047,6 +1131,7 @@ function HeroContent({
             {booking.payment_status === 'paid' ? '✓ Paid'
               : booking.payment_status === 'partial' ? 'Partially Paid'
               : booking.payment_status === 'refunded' ? 'Refunded'
+              : booking.payment_method === 'cash' ? 'Awaiting Payment'
               : 'Pending Confirmation'}
           </Text>
         </View>

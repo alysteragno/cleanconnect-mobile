@@ -1,6 +1,6 @@
 {
   "name": "cleanconnect-mobile",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

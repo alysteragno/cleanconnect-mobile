@@ -7,7 +7,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter, useLocalSearchParams } from 'expo-router'
-import { Feather, Ionicons } from '@expo/vector-icons'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import AppHeader from '@/components/AppHeader'
 import LocationMapPicker from '@/components/LocationMapPicker'
@@ -16,8 +16,9 @@ import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import GCashLogo from '@/assets/gcash_logo.svg'
 import MayaLogo from '@/assets/maya_logo.svg'
+import QrphLogo from '@/assets/qrph_logo.svg'
 import { ServiceType, SpaceType, SERVICE_LABELS } from '@/constants/types'
-import { getService } from '@/constants/services'
+import { useServices } from '@/hooks/useServices'
 import { estimatePrice, estimateBookingPrice, estimateDurationHours, serviceNeedsSqm } from '@/constants/pricing'
 import { saveDraft, loadDraft, clearDraft, saveRecentBooking } from '@/lib/bookingDraft'
 import { PAYMONGO_ENABLED } from '@/constants/config'
@@ -76,8 +77,8 @@ function BankCheckIcon() {
 // GCash, Maya, or any bank app on the hosted page.
 function OnlinePaymentIcon() {
   return (
-    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' }}>
-      <Ionicons name="qr-code" size={22} color="#fff" />
+    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+      <QrphLogo width={30} height={30} />
     </View>
   )
 }
@@ -365,12 +366,6 @@ const PAYMENT_OPTIONS = [
   { key: 'bank_check', label: 'Bank Check',     desc: 'Deliver a check before service' },
 ]
 
-const AI_STEPS = [
-  { label: 'Manpower Estimation',      s: 1 },
-  { label: 'Availability Analysis',    s: 2 },
-  { label: 'Geo-based Cleaner Matching', s: 3 },
-]
-
 const METRO_MANILA_CITIES = [
   'Caloocan', 'Las Piñas', 'Makati', 'Malabon', 'Mandaluyong',
   'Manila', 'Marikina', 'Muntinlupa', 'Navotas', 'Parañaque',
@@ -470,6 +465,7 @@ function isWithinServiceHours(time: Date): boolean {
 export default function NewBookingScreen() {
   const router = useRouter()
   const { service: serviceSlug } = useLocalSearchParams<{ service?: string }>()
+  const { getService } = useServices()
   const C = useThemeColors()
   const { isDark } = useTheme()
   const [step, setStep] = useState(1)
@@ -486,8 +482,6 @@ export default function NewBookingScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [processing, setProcessing] = useState(false)
-  const [aiStep, setAiStep] = useState(0)
 
   const [paymentSettings,  setPaymentSettings]  = useState<Record<string, string>>({})
   const [bankAccounts,     setBankAccounts]     = useState<BankAccount[] | undefined>(undefined)
@@ -741,16 +735,6 @@ export default function NewBookingScreen() {
   function handleNext() {
     const err = validateStep()
     if (err) { Alert.alert(err.title, err.message); return }
-
-    if (step === 4) {
-      setProcessing(true)
-      setAiStep(0)
-      setTimeout(() => setAiStep(1), 700)
-      setTimeout(() => setAiStep(2), 1400)
-      setTimeout(() => setAiStep(3), 2100)
-      setTimeout(() => { setProcessing(false); setAiStep(0); setStep(5) }, 2800)
-      return
-    }
     setStep(s => s + 1)
   }
 
@@ -892,7 +876,7 @@ export default function NewBookingScreen() {
       service_name: getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type ?? 'general'],
       service_slug: currentServiceSlug ?? null,
       space_type: form.space_type,
-      property_sqm: needsSqm ? sqm : null,
+      property_sqm: sqm,
       sofa_seaters: currentServiceSlug === 'sofa_couch_deep_cleaning' && form.sofa_seaters > 0 ? form.sofa_seaters : null,
       other_furniture: combinedFurniture || null,
       furniture_images: allMedia.length > 0 ? allMedia : null,
@@ -1011,7 +995,7 @@ export default function NewBookingScreen() {
             <Text style={{ fontWeight: '700', color: blocked ? C.textMuted : '#fff' }}>
               {blocked
                 ? 'Read Terms to Continue'
-                : step === 4 ? 'Process Booking →'
+                : step === 4 ? 'Continue to Payment →'
                 : step === 6 ? 'Confirm Booking'
                 : 'Next →'}
             </Text>
@@ -1026,55 +1010,6 @@ export default function NewBookingScreen() {
       <AppHeader title="New Booking" subtitle={`Step ${step} of 6 — ${stepLabels[step - 1]}`} hideBell />
 
       {stepIndicator}
-
-      {/* ── AI Processing Overlay ── */}
-      {processing && (
-        <View style={{
-          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: isDark ? 'rgba(15,23,42,0.96)' : 'rgba(249,250,251,0.97)',
-          alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 32,
-        }}>
-          <View style={{
-            backgroundColor: C.white, borderRadius: 24, padding: 32,
-            borderWidth: 1, borderColor: C.border, alignItems: 'center',
-            shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: isDark ? 0.5 : 0.12, shadowRadius: 20, elevation: 12, width: '100%',
-          }}>
-            <View style={{
-              width: 64, height: 64, borderRadius: 32,
-              backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center', marginBottom: 16,
-            }}>
-              <ActivityIndicator size="large" color={C.primary} />
-            </View>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, marginBottom: 6 }}>AI Processing</Text>
-            <Text style={{ fontSize: 13, color: C.textSecondary, marginBottom: 24, textAlign: 'center' }}>
-              Finding the best match for your booking...
-            </Text>
-            {AI_STEPS.map(item => (
-              <View key={item.label} style={{
-                flexDirection: 'row', alignItems: 'center', gap: 12,
-                width: '100%', marginBottom: 14,
-                opacity: aiStep >= item.s ? 1 : isDark ? 0.45 : 0.3,
-              }}>
-                <View style={{
-                  width: 26, height: 26, borderRadius: 13,
-                  backgroundColor: aiStep >= item.s ? C.primary : C.border,
-                  borderWidth: 1, borderColor: aiStep >= item.s ? C.primary : C.border,
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {aiStep >= item.s
-                    ? <Feather name="check" size={14} color="#fff" />
-                    : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.textMuted }} />
-                  }
-                </View>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: aiStep >= item.s ? C.text : C.textSecondary }}>
-                  {item.label}
-                </Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
 
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }} showsVerticalScrollIndicator={false}>
 
@@ -1909,7 +1844,7 @@ export default function NewBookingScreen() {
             <View style={{ backgroundColor: '#f0fdf4', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#bbf7d0', flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
               <Feather name="cpu" size={16} color="#16a34a" style={{ marginTop: 1 }} />
               <Text style={{ flex: 1, fontSize: 12, color: '#15803d', lineHeight: 18 }}>
-                Tapping "Process Booking" will run AI matching — estimating manpower, checking availability, and finding the nearest cleaner for your location.
+                Once you confirm and submit, we'll automatically match your booking with the nearest available cleaner based on your service location and schedule — no manual searching needed.
               </Text>
             </View>
           </View>
@@ -1981,8 +1916,8 @@ export default function NewBookingScreen() {
             {PAYMONGO_ENABLED && isPaymongoMethod(form.payment_method) && (
               <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 18, gap: 14 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' }}>
-                    <Feather name="shield" size={20} color={Colors.primary} />
+                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: C.borderLight, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    <QrphLogo width={28} height={28} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 15, fontWeight: '800', color: C.text }}>Secure Online Payment</Text>

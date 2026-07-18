@@ -4,8 +4,11 @@ import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import CustomerInfoCard from '@/components/CustomerInfoCard'
+import { PAYMONGO_ENABLED } from '@/constants/config'
+import { isPaymongoMethod } from '@/lib/paymongo'
 import GCashLogo from '@/assets/gcash_logo.svg'
 import MayaLogo from '@/assets/maya_logo.svg'
+import QrphLogo from '@/assets/qrph_logo.svg'
 
 const SPACE_IMAGES: Record<string, any> = {
   residential: require('@/assets/services/residential_cleaning.webp'),
@@ -47,7 +50,12 @@ const PAYMENT_META: Record<string, PaymentMeta> = {
 }
 
 function PaymentChip({ method, textSecondary, chipBg }: { method: string; textSecondary: string; chipBg: string }) {
-  const meta = PAYMENT_META[method] ?? { label: method, icon: 'credit-card', color: textSecondary, bg: chipBg }
+  // Under PayMongo, gcash/maya/bank_transfer are all collected through the
+  // same hosted QRPh checkout — show the one QRPh mark instead of whichever
+  // wallet brand happens to be in the DB column (see PAYMONGO_ENABLED).
+  const meta: PaymentMeta = PAYMONGO_ENABLED && isPaymongoMethod(method)
+    ? { label: 'Online Payment', logo: QrphLogo as any, logoBg: '#fff', logoW: 14, logoH: 14, color: Colors.primary, bg: Colors.primary + '15' }
+    : PAYMENT_META[method] ?? { label: method, icon: 'credit-card', color: textSecondary, bg: chipBg }
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: meta.bg, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5 }}>
       {meta.logo ? (

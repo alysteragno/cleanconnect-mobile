@@ -9,9 +9,11 @@ import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
-import { getService } from '@/constants/services'
+import { useServices } from '@/hooks/useServices'
 import AppHeader from '@/components/AppHeader'
 import CustomerInfoCard from '@/components/CustomerInfoCard'
+import { PAYMONGO_ENABLED } from '@/constants/config'
+import { isPaymongoMethod } from '@/lib/paymongo'
 
 type Assignment = {
   id: string
@@ -57,6 +59,7 @@ function formatTime(t: string) {
 
 export default function CleanerJobsScreen() {
   const router = useRouter()
+  const { getService } = useServices()
   const C = useThemeColors()
   const { isDark } = useTheme()
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -227,7 +230,9 @@ export default function CleanerJobsScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Feather name="credit-card" size={13} color={C.textMuted} />
                   <Text style={{ fontSize: 13, color: C.textSecondary }}>
-                    {PAYMENT_LABELS[b?.payment_method ?? ''] ?? b?.payment_method} ·{' '}
+                    {PAYMONGO_ENABLED && isPaymongoMethod(b?.payment_method ?? '')
+                      ? 'Online Payment'
+                      : PAYMENT_LABELS[b?.payment_method ?? ''] ?? b?.payment_method} ·{' '}
                     <Text style={{ fontWeight: '700', color: b?.payment_status === 'paid' ? '#16a34a' : C.textMuted }}>
                       {b?.payment_status === 'paid' ? 'Paid' : 'Pending'}
                     </Text>

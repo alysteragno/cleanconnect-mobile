@@ -12,7 +12,7 @@ import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
 import { Booking, BookingStatus, STATUS_LABELS } from '@/constants/types'
-import { getService } from '@/constants/services'
+import { useServices } from '@/hooks/useServices'
 
 const SPACE_IMAGES: Record<string, any> = {
   residential: require('@/assets/services/residential_cleaning.webp'),
@@ -56,6 +56,7 @@ function fmtTime(t: string) {
 
 export default function BookingsHistoryScreen() {
   const router     = useRouter()
+  const { getService } = useServices()
   const C          = useThemeColors()
   const { isDark } = useTheme()
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, RefreshControl,
+  View, Text, Image, TouchableOpacity, ScrollView, ActivityIndicator, Alert, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
@@ -29,6 +29,7 @@ export default function CleanerProfileScreen() {
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [stats, setStats] = useState<Stats>({ completed: 0, assigned: 0 })
   const [unreadCount, setUnreadCount] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
@@ -41,13 +42,14 @@ export default function CleanerProfileScreen() {
     setEmail(user.email ?? '')
 
     const [{ data: profile }, { data: assignments }, { count }] = await Promise.all([
-      supabase.from('profiles').select('full_name, phone').eq('id', user.id).single(),
+      supabase.from('profiles').select('full_name, phone, photo_url').eq('id', user.id).single(),
       supabase.from('cleaner_assignments').select('status').eq('cleaner_id', user.id),
       supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_read', false),
     ])
 
     setFullName(profile?.full_name ?? '')
     setPhone(profile?.phone ?? '')
+    setPhotoUrl(profile?.photo_url ?? null)
     setStats({
       completed: (assignments ?? []).filter(a => a.status === 'completed').length,
       assigned: (assignments ?? []).filter(a => a.status === 'assigned').length,
@@ -101,15 +103,22 @@ export default function CleanerProfileScreen() {
           backgroundColor: C.white, borderRadius: 20, borderWidth: 1,
           borderColor: C.border, padding: 24, alignItems: 'center',
         }}>
-          <View style={{
-            width: 72, height: 72, borderRadius: 36,
-            backgroundColor: Colors.primary + '20',
-            alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-          }}>
-            <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.primary }}>
-              {fullName.charAt(0).toUpperCase() || '?'}
-            </Text>
-          </View>
+          {photoUrl ? (
+            <Image
+              source={{ uri: photoUrl }}
+              style={{ width: 72, height: 72, borderRadius: 36, marginBottom: 12 }}
+            />
+          ) : (
+            <View style={{
+              width: 72, height: 72, borderRadius: 36,
+              backgroundColor: Colors.primary + '20',
+              alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+            }}>
+              <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.primary }}>
+                {fullName.charAt(0).toUpperCase() || '?'}
+              </Text>
+            </View>
+          )}
           <Text style={{ fontSize: 18, fontWeight: '700', color: C.text }}>{fullName}</Text>
           <Text style={{ fontSize: 14, color: C.textSecondary, marginTop: 2 }}>{email}</Text>
           <View style={{
@@ -230,6 +239,25 @@ export default function CleanerProfileScreen() {
             </View>
           </View>
         </View>
+
+        {/* Legal */}
+        <TouchableOpacity
+          onPress={() => router.push('/privacy-policy')}
+          style={{
+            backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border,
+            paddingHorizontal: 16, paddingVertical: 14,
+            flexDirection: 'row', alignItems: 'center', gap: 12,
+          }}
+        >
+          <View style={{
+            width: 34, height: 34, borderRadius: 10,
+            backgroundColor: 'rgba(219,39,119,0.15)', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Feather name="shield" size={16} color={Colors.primary} />
+          </View>
+          <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: C.text }}>Privacy Policy</Text>
+          <Feather name="chevron-right" size={18} color={C.textMuted} />
+        </TouchableOpacity>
 
         <TouchableOpacity
           onPress={signOut}

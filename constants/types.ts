@@ -49,6 +49,7 @@ export type Profile = {
   role: UserRole
   branch_id: string | null
   is_active: boolean
+  photo_url: string | null
 }
 
 export type Booking = {

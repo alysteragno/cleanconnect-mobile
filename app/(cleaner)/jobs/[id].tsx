@@ -22,6 +22,30 @@ import JobLocationModal from "@/components/JobLocationModal";
 
 const ARRIVAL_RADIUS_METERS = 500;
 
+// A cleaner may only have one job in_progress at a time — this checks every
+// other booking assigned to them (any assignment status) for one already
+// underway, used both to gate the UI and as a defense-in-depth re-check
+// right before startTrip()/markArrived() actually write anything.
+async function hasOtherActiveJob(
+  cleanerId: string,
+  excludeBookingId: string,
+): Promise<boolean> {
+  const { data: otherAssignments } = await supabase
+    .from("cleaner_assignments")
+    .select("booking_id")
+    .eq("cleaner_id", cleanerId)
+    .neq("booking_id", excludeBookingId);
+  const bookingIds = (otherAssignments ?? []).map((a: any) => a.booking_id);
+  if (bookingIds.length === 0) return false;
+  const { data: activeBookings } = await supabase
+    .from("bookings")
+    .select("id")
+    .in("id", bookingIds)
+    .eq("status", "in_progress")
+    .limit(1);
+  return (activeBookings ?? []).length > 0;
+}
+
 function haversineDistance(
   lat1: number,
   lng1: number,
@@ -81,6 +105,7 @@ export default function JobDetailScreen() {
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [blockedByOtherJob, setBlockedByOtherJob] = useState(false);
 
   // flow states
   const [tripStarted, setTripStarted] = useState(false);
@@ -147,6 +172,12 @@ export default function JobDetailScreen() {
         setCompletedAt(new Date());
       }
       if (b.payment_status === "paid") setCashCollected(true);
+
+      // Only relevant if this job hasn't been started yet — once it's the
+      // active one, there's nothing else to block.
+      if (!isInProgress && !isCompleted) {
+        setBlockedByOtherJob(await hasOtherActiveJob(user.id, data.booking_id));
+      }
     }
     setAssignment(data as unknown as Assignment);
     setLoading(false);
@@ -155,7 +186,25 @@ export default function JobDetailScreen() {
 
   // Step 1 — geo-tag starting location, transition to "On the Way"
   async function startTrip() {
+    if (!assignment) return;
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Re-check right before writing anything — the block computed on load
+      // can go stale if another job was started from elsewhere in the
+      // meantime.
+      if (await hasOtherActiveJob(user.id, assignment.booking_id)) {
+        setBlockedByOtherJob(true);
+        Alert.alert(
+          "Job Already In Progress",
+          "You already have another job in progress. Complete it before starting a new one.",
+        );
+        return;
+      }
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(
@@ -167,10 +216,6 @@ export default function JobDetailScreen() {
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || !assignment) return;
 
       const nowIso = new Date().toISOString();
       const { error: bookingErr, data: bookingData } = await supabase
@@ -185,13 +230,26 @@ export default function JobDetailScreen() {
         );
       }
 
-      await supabase
-        .from("profiles")
+      // Geotag lives on this specific assignment (not profiles.home_lat/lng,
+      // which is the admin-set static home address — overwriting it here
+      // clobbered that on every trip start for no benefit, since a booking
+      // with multiple cleaners needs one geotag per cleaner anyway).
+      // Best-effort: the trip has genuinely started (booking update above
+      // already succeeded), so a failed geotag write is logged, not thrown —
+      // this is supplementary data for dispatch/dispute review, not core to
+      // the cleaner's task, and shouldn't block them with a confusing error.
+      const { error: geotagErr, data: geotagData } = await supabase
+        .from("cleaner_assignments")
         .update({
-          home_lat: loc.coords.latitude,
-          home_lng: loc.coords.longitude,
+          en_route_lat: loc.coords.latitude,
+          en_route_lng: loc.coords.longitude,
+          en_route_at: nowIso,
         })
-        .eq("id", user.id);
+        .eq("id", assignment.id)
+        .select();
+      if (geotagErr || !geotagData || geotagData.length === 0) {
+        console.warn("[startTrip] geotag write failed:", JSON.stringify(geotagErr));
+      }
 
       setAssignment((prev) =>
         prev
@@ -242,29 +300,14 @@ export default function JobDetailScreen() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user) {
-        const { data: otherAssignments } = await supabase
-          .from("cleaner_assignments")
-          .select("booking_id")
-          .eq("cleaner_id", user.id)
-          .neq("id", assignment.id);
-        const bookingIds = (otherAssignments ?? []).map((a: any) => a.booking_id);
-        if (bookingIds.length > 0) {
-          const { data: activeBookings } = await supabase
-            .from("bookings")
-            .select("id")
-            .in("id", bookingIds)
-            .eq("status", "in_progress")
-            .limit(1);
-          if ((activeBookings ?? []).length > 0) {
-            Alert.alert(
-              "Job Already In Progress",
-              "You already have another job in progress. Complete it before starting a new one.",
-              [{ text: "OK" }],
-            );
-            return;
-          }
-        }
+      if (user && (await hasOtherActiveJob(user.id, assignment.booking_id))) {
+        setBlockedByOtherJob(true);
+        Alert.alert(
+          "Job Already In Progress",
+          "You already have another job in progress. Complete it before starting a new one.",
+          [{ text: "OK" }],
+        );
+        return;
       }
 
       const now = new Date().toISOString();
@@ -276,6 +319,26 @@ export default function JobDetailScreen() {
       if (error) throw error;
       if (!bookingData || bookingData.length === 0) {
         throw new Error("Could not start the job — the booking may no longer be assigned to you.");
+      }
+
+      // Persist the verified arrival geotag (previously the GPS fix above was
+      // only used for the radius check, then discarded) — this is the
+      // ground-truth "cleaner was actually here" location, useful for
+      // transportation-fee disputes and as a more accurate departure point
+      // for the next job's AI dispatch than the customer's dropped pin.
+      // Best-effort, same as startTrip() — logged, not thrown, since arrival
+      // itself (booking update above) already succeeded.
+      const { error: geotagErr, data: geotagData } = await supabase
+        .from("cleaner_assignments")
+        .update({
+          arrived_lat: loc.coords.latitude,
+          arrived_lng: loc.coords.longitude,
+          arrived_at: now,
+        })
+        .eq("id", assignment.id)
+        .select();
+      if (geotagErr || !geotagData || geotagData.length === 0) {
+        console.warn("[markArrived] geotag write failed:", JSON.stringify(geotagErr));
       }
 
       if (b.customer_id) {
@@ -617,14 +680,35 @@ export default function JobDetailScreen() {
             </View>
           ) : null}
 
-          {/* ── Step 1: Swipe to Start Trip ── */}
+          {/* ── Step 1: Swipe to Start Trip (or blocked by another active job) ── */}
           {!tripStarted && !completed && (
-            <SwipeSlider
-              label="Swipe to Start Trip"
-              color="#1d4ed8"
-              icon="navigation"
-              onComplete={startTrip}
-            />
+            blockedByOtherJob ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  backgroundColor: "#f1f5f9",
+                  borderRadius: 14,
+                  paddingVertical: 16,
+                  paddingHorizontal: 16,
+                  borderWidth: 1,
+                  borderColor: "#e2e8f0",
+                }}
+              >
+                <Feather name="lock" size={16} color="#94a3b8" />
+                <Text style={{ flex: 1, fontSize: 13, fontWeight: "600", color: "#64748b", lineHeight: 18 }}>
+                  You have another job in progress. Finish it before starting this one.
+                </Text>
+              </View>
+            ) : (
+              <SwipeSlider
+                label="Swipe to Start Trip"
+                color="#1d4ed8"
+                icon="navigation"
+                onComplete={startTrip}
+              />
+            )
           )}
 
           {/* ── Step 2: On the Way → I've Arrived ── */}

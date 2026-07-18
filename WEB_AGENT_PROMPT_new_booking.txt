@@ -1,0 +1,47 @@
+Implement a "New Booking" feature on the web admin side (cleanconnect-web) so admin/branch staff can manually create a booking on behalf of a customer (e.g. phone-in or walk-in bookings), mirroring what the mobile app's customer booking form already writes to the `bookings` table.
+
+CONTEXT — this must match the mobile app's data model exactly, since both apps write to the same Supabase `bookings` table and the same `services` table drives pricing/labels.
+
+## Current `services` table (14 active rows, fetched live via anon key, ordered by sort_order)
+
+| sort | slug | name | starting_price | price_note | duration | category_id |
+|---|---|---|---|---|---|---|
+| 1 | mattress_deep_cleaning | Mattress Deep Cleaning | 800 | ₱800 – ₱2,000 | 1 – 2 hours | null |
+| 2 | aircon_cleaning | Aircon Cleaning | 700 | ₱700 – ₱1,500 | 1 hour | 11111111-1111-1111-1111-000000000003 |
+| 2 | sofa_couch_deep_cleaning | Sofa / Couch Cleaning | 800 | ₱800 – ₱2,500 | 1 – 2 hours | null |
+| 3 | post_construction | Post-Construction | 3000 | from ₱3,000 | 4–8 hours | null |
+| 4 | aircon_repair | Aircon Repair | 2000 | ₱2,000 – ₱2,500 | 2 hours | 11111111-1111-1111-1111-000000000003 |
+| 6 | aircon_freon_charging | Aircon Freon Charging | 800 | ₱800 – ₱1,500 | 1 – 2 hours | null |
+| 6 | grease_trap_installation | Grease Trap Installation | 4000 | ₱4,000 – ₱5,000 | null | 11111111-1111-1111-1111-000000000004 |
+| 7 | carpet_cleaning | Carpet Cleaning | 800 | ₱800 | 2 hours | 11111111-1111-1111-1111-000000000002 |
+| 8 | grease_trap_cleaning | Grease Trap Cleaning | 1500 | ₱1,500 – ₱3,500 | 2 – 4 hours | null |
+| 8 | curtain_dry_cleaning | Curtain Dry Cleaning | 500 | ₱500 | 30 mins | 11111111-1111-1111-1111-000000000001 |
+| 15 | general_cleaning | House Cleaning | 1500 | ₱1,500 – ₱4,000 | 3 – 5 hours | null |
+| 16 | condo_cleaning | Condo Cleaning | 1200 | ₱1,200 – ₱2,500 | 2 – 4 hours | null |
+| 17 | office_cleaning | Office Cleaning | 1200 | ₱1,200 – ₱3,000 | 2 – 4 hours | null |
+| 18 | commercial_cleaning | Commercial Cleaning | 1500 | ₱1,500 – ₱5,000 | 3 – 5 hours | null |
+
+Note: `general_cleaning`, `condo_cleaning`, `office_cleaning`, `commercial_cleaning`, `post_construction` are the 5 "general" (sqm-priced) services and require `space_type` + `property_sqm`. Everything else is a flat/fixed-scope service (no sqm needed). `sofa_couch_deep_cleaning` additionally captures a `sofa_seaters` quantity.
+
+Each row also has: `id`, `description`, `image_url` (Supabase Storage public URL, bucket `service-images`), `is_active`, `accent_color`, `placeholder_bg`, `placeholder_icon`, `placeholder_icon_color`. Query the `services` table live rather than hardcoding this list, since admin can edit name/price/description from the web already — this table is just a snapshot for reference.
+
+## Fields the mobile customer booking form writes to `bookings` (match this shape for the admin-created booking insert)
+
+- `service_id` (FK to services.id) / service slug reference
+- `space_type` — 'residential' | 'condo' | 'office' | null (only for the 5 sqm-priced services above; null otherwise)
+- `property_sqm` — numeric, only when space_type applies; null otherwise
+- `sofa_seaters` — numeric, only set when service is sofa_couch_deep_cleaning and > 0; null otherwise
+- `service_date`, `service_time`
+- `service_lat`, `service_lng` — GPS coords of the service address (customer pins on a map in-app). Feeds the AI dispatch/matching engine, so the web form needs an equivalent way to capture or manually enter lat/lng (e.g. an address geocode lookup or a pin-on-map component) — do not leave this null if avoidable.
+- `service_address_label`, plus address breakdown fields (unit, street, barangay, city, province) — check exact column names in the bookings table schema before writing the insert.
+- `payment_method` — 'cash' | 'gcash' | 'maya' | 'bank_transfer' | 'bank_check'
+- `payment_reference`, `payment_proof_uri` — required for gcash/maya/bank_transfer, not for cash
+- `furniture_images` (string[] of Storage URLs), `furniture_videos` (string[] of Storage URLs, optional), `other_furniture` (free text), `special_notes` (free text) — likely less relevant for an admin-entered booking but keep the columns nullable/optional in the form
+- `payment_status` — mobile now labels this contextually: 'paid' / 'partial' / 'refunded' show as-is; for 'pending', cash bookings show "Awaiting Payment" while digital methods show "Pending Confirmation" (since digital ones need admin verification of a reference/proof, cash is just collected on-site). Apply the same logic to any admin-facing status display for consistency.
+
+## Ask
+
+1. Confirm the exact `bookings` table column names/types (some of the above are inferred from the mobile insert call — verify against the live schema before writing code).
+2. Build an admin "New Booking" form that captures all of the above, defaulting `payment_status` appropriately per payment method, and pulls services live from the `services` table (respecting `is_active`) rather than a hardcoded list.
+3. Reuse whatever pricing estimation logic already exists on web (or port the mobile app's `estimateBookingPrice`/`estimatePrice` logic) so admin sees the same estimated price the customer would have seen.
+4. Confirm whether admin-created bookings should skip the AI-dispatch auto-matching (since admin is entering it after presumably already knowing which cleaner/branch it's for) or should flow through the same assignment pipeline as customer-created bookings — check with the team if unclear, don't assume.

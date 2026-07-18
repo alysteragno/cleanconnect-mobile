@@ -1,0 +1,25 @@
+Fix the PayMongo checkout session on the web side (cleanconnect-web) to use the `qrph` payment method type, not `gcash`.
+
+CONTEXT — mobile app's PayMongo integration and why this matters
+
+The mobile app (cleanconnect-mobile) never talks to PayMongo directly. It calls:
+
+    POST {WEB_URL}/api/paymongo/checkout
+    Authorization: Bearer <supabase access token>
+    Body: { "booking_id": "<uuid>" }
+
+and expects back `{ "checkout_url": "..." }`, which it opens in an in-app browser (see `lib/paymongo.ts`). Payment is confirmed server-side by your PayMongo webhook, which flips `bookings.payment_status` to `paid`. The endpoint must stay idempotent (calling it again for the same booking returns the same `checkout_url` — mobile relies on this for the "Pay Now" retry button), and must return HTTP 409 when the booking is already paid.
+
+On the mobile side, `payment_method` is one of: `cash`, `gcash`, `maya`, `bank_transfer`, `bank_check`. Every value except `cash`/`bank_check` is treated as "PayMongo-eligible" (`isPaymongoMethod` in `lib/paymongo.ts`). We recently refactored the customer-facing UI so that `gcash`/`maya`/`bank_transfer` are no longer shown as separate payment options — they're collapsed into a single "Online Payment" choice, described in-app as "Pay with GCash, Maya, or any bank app by scanning the on-screen QR." The DB column keeps storing the literal string `'gcash'` for this option (that's intentional — it's just a legacy enum value being reused as the umbrella label, not something to rename), and the mobile UI renders it with a QRPh logo instead of the GCash logo whenever `PAYMONGO_ENABLED` is true.
+
+THE BUG
+
+That "any bank app / any e-wallet via one QR" promise only works if the PayMongo Checkout Session is actually created with the `qrph` payment method type (PayMongo's interoperable QR Ph standard — one QR that GCash, Maya, and participating bank apps can all scan). If the web backend's checkout session creation is still passing `gcash` as the payment method type (leftover from before this was unified), the hosted checkout page will restrict the customer to GCash's own wallet flow only — which breaks the "any bank app" promise and is the "returns gcash instead of qrph" bug being reported.
+
+ASK
+
+1. Find where the PayMongo Checkout Session (or Source, depending on which API you're on) is created for the `/api/paymongo/checkout` endpoint — grep for `payment_method_types` / `gcash` near the PayMongo API calls.
+2. Confirm/change it to request `qrph` as the payment method type instead of `gcash` (check PayMongo's current Checkout Session API docs for the exact allowed values and whether `qrph` needs to be combined with other types like `card` — don't just swap the string blindly).
+3. Confirm `qrph` is actually enabled/activated for our PayMongo account/dashboard (it sometimes needs to be turned on separately from GCash, since it's a newer product) — flag if it isn't, since that blocks this fix from working end-to-end.
+4. Check for any other place on the web side that hardcodes or displays this payment method as "GCash" (admin payment settings page, transaction/reporting views, webhook handler branching on payment type, etc.) and make sure it's consistent with the new "Online Payment (QRPh)" framing rather than "GCash" — but do NOT rename the `bookings.payment_method` DB value away from `'gcash'`, mobile still writes and reads that literal string.
+5. Sanity-check the webhook handler isn't branching on a specific PayMongo payment type in a way that would silently ignore a `qrph`-sourced payment event.

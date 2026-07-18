@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, RefreshControl, Image, FlatList, useWindowDimensions } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, RefreshControl, Image, FlatList, useWindowDimensions, Alert } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -8,10 +8,18 @@ import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import { Booking } from '@/constants/types'
 import AppHeader from '@/components/AppHeader'
+import AiChatWidget from '@/components/AiChatWidget'
+import LocationMapPicker, { Coord } from '@/components/LocationMapPicker'
 import { loadDraft } from '@/lib/bookingDraft'
 import * as Haptics from 'expo-haptics'
 import { ServiceDef } from '@/constants/services'
 import { useServices } from '@/hooks/useServices'
+
+// Bookings created by an admin (phone-in/walk-in, cleanconnect-web) don't get
+// a GPS pin at creation time — only the customer's own device can set one
+// accurately. These are the statuses where a missing pin still matters (a
+// completed/cancelled job has no more use for it).
+const PINNABLE_STATUSES = ['pending', 'confirmed', 'in_progress']
 
 const AD_BANNERS = [
   require('@/assets/adBanner/mattress_deepcleaning.webp'),
@@ -182,6 +190,11 @@ export default function CustomerHomeScreen() {
   const [serviceRatings, setServiceRatings] = useState<Record<string, { avg: number; count: number }>>({})
   const { groups: serviceGroups } = useServices()
 
+  const [pinBooking, setPinBooking] = useState<{ id: string; service_name: string | null } | null>(null)
+  const [showLocationPicker, setShowLocationPicker] = useState(false)
+  const [savingLocation, setSavingLocation] = useState(false)
+  const pinPromptShownRef = useRef(false)
+
   const cardWidth = (width - 40 - 12) / 2
 
   useEffect(() => { loadData() }, [])
@@ -211,7 +224,7 @@ export default function CustomerHomeScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: profile }, { count }, { data: inProgress }, { data: ratingRows }] = await Promise.all([
+    const [{ data: profile }, { count }, { data: inProgress }, { data: ratingRows }, { data: unpinned }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
       supabase
         .from('notifications')
@@ -226,6 +239,15 @@ export default function CustomerHomeScreen() {
         .limit(1)
         .maybeSingle(),
       supabase.from('service_ratings').select('service_name, avg_rating, review_count'),
+      supabase
+        .from('bookings')
+        .select('id, service_name')
+        .eq('customer_id', user.id)
+        .is('service_lat', null)
+        .in('status', PINNABLE_STATUSES)
+        .order('service_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
     ])
 
     const ratings: Record<string, { avg: number; count: number }> = {}
@@ -239,8 +261,44 @@ export default function CustomerHomeScreen() {
     setUnreadCount(count ?? 0)
     setInProgressBooking(inProgress ?? null)
     setServiceRatings(ratings)
+    setPinBooking(unpinned ?? null)
     setLoading(false)
     setRefreshing(false)
+  }
+
+  // Admin-created (walk-in/phone-in) bookings arrive with no GPS pin — surface
+  // the same drag-to-pin map used in the booking wizard right away, once per
+  // app session, instead of making the customer dig through Bookings to find it.
+  useEffect(() => {
+    if (pinBooking && !pinPromptShownRef.current) {
+      pinPromptShownRef.current = true
+      setShowLocationPicker(true)
+    }
+  }, [pinBooking])
+
+  async function handleConfirmLocation(coord: Coord) {
+    if (!pinBooking) return
+    setSavingLocation(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated.')
+
+      const { error } = await supabase
+        .from('bookings')
+        .update({ service_lat: coord.latitude, service_lng: coord.longitude })
+        .eq('id', pinBooking.id)
+        .eq('customer_id', user.id)
+      if (error) throw error
+
+      setShowLocationPicker(false)
+      const bookingId = pinBooking.id
+      setPinBooking(null)
+      router.push(`/(customer)/bookings/${bookingId}` as any)
+    } catch (err: any) {
+      Alert.alert('Couldn\'t save location', err?.message ?? 'Please try again.')
+    } finally {
+      setSavingLocation(false)
+    }
   }
 
   const s = useMemo(() => makeStyles(C), [C])
@@ -361,6 +419,25 @@ export default function CustomerHomeScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <AiChatWidget />
+
+      <LocationMapPicker
+        visible={showLocationPicker}
+        onConfirm={handleConfirmLocation}
+        onClose={() => setShowLocationPicker(false)}
+      />
+      {savingLocation && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      )}
     </View>
   )
 }

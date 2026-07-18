@@ -246,6 +246,14 @@ export default function RegisterScreen() {
             }
           </TouchableOpacity>
 
+          <Text style={s.privacyNote}>
+            By creating an account, you agree to our{' '}
+            <Text style={s.privacyLink} onPress={() => router.push('/privacy-policy')}>
+              Privacy Policy
+            </Text>
+            .
+          </Text>
+
           <View style={s.footer}>
             <Text style={s.footerText}>Already have an account? </Text>
             <Link href="/(auth)/login">
@@ -318,6 +326,9 @@ const s = StyleSheet.create({
     shadowOpacity: 0.35, shadowRadius: 10, elevation: 5,
   },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 15, letterSpacing: 0.2 },
+
+  privacyNote: { fontSize: 12, color: '#6b7280', textAlign: 'center', marginTop: 14, lineHeight: 17 },
+  privacyLink: { color: '#db2777', fontWeight: '700' },
 
   footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },
   footerText: { fontSize: 13, color: '#6b7280' },

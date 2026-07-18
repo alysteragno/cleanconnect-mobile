@@ -23,8 +23,21 @@ export default function ForgotPasswordScreen() {
     setLoading(true)
     setError(null)
 
+    // The mobile app has no reset-password screen of its own — the email link
+    // opens the web app's reset page instead (same Supabase project/DB).
+    // Must be explicit: without redirectTo, Supabase falls back to the
+    // project's dashboard-configured Site URL, which may not match the
+    // current web deployment.
+    //
+    // Goes straight to /reset-password (NOT /auth/callback): this mobile
+    // client uses the default implicit flow, so the email link carries
+    // #access_token=... in a hash fragment, which a server route can never
+    // see. /auth/callback only handles the web's own PKCE ?code= flow.
+    // /reset-password reads the hash client-side instead.
+    const webUrl = process.env.EXPO_PUBLIC_WEB_URL
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      email.trim().toLowerCase()
+      email.trim().toLowerCase(),
+      webUrl ? { redirectTo: `${webUrl}/reset-password` } : undefined
     )
     setLoading(false)
 

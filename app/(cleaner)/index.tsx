@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
+  Image,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
@@ -96,6 +97,22 @@ function makeStyles(C: ReturnType<typeof useThemeColors>) {
       shadowRadius: 4,
       elevation: 2,
     },
+    greetingAvatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      marginRight: 14,
+    },
+    greetingAvatarFallback: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      marginRight: 14,
+      backgroundColor: Colors.primary + "20",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    greetingAvatarInitial: { fontSize: 20, fontWeight: "800", color: Colors.primary },
     greetingLabel: { fontSize: 13, color: C.textMuted },
     greetingName: {
       fontSize: 22,
@@ -174,6 +191,7 @@ export default function CleanerHomeScreen() {
   const s = useMemo(() => makeStyles(C), [C]);
 
   const [name, setName] = useState("");
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [offers, setOffers] = useState<JobOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -202,7 +220,7 @@ export default function CleanerHomeScreen() {
         await Promise.all([
           supabase
             .from("profiles")
-            .select("full_name")
+            .select("full_name, photo_url")
             .eq("id", user.id)
             .single(),
           supabase
@@ -232,8 +250,9 @@ export default function CleanerHomeScreen() {
             .eq("is_read", false),
         ]);
 
-      const p = profile as { full_name: string } | null;
+      const p = profile as { full_name: string; photo_url: string | null } | null;
       setName(p?.full_name?.split(" ")[0] ?? "there");
+      setPhotoUrl(p?.photo_url ?? null);
       const offerList = ((assignments ?? []) as unknown as JobOffer[]).filter(
         (a) => !["completed", "cancelled"].includes(a.bookings?.status ?? ""),
       );
@@ -315,6 +334,15 @@ export default function CleanerHomeScreen() {
         <View style={s.body}>
           {/* Greeting card */}
           <View style={s.greetingCard}>
+            {photoUrl ? (
+              <Image source={{ uri: photoUrl }} style={s.greetingAvatar} />
+            ) : (
+              <View style={s.greetingAvatarFallback}>
+                <Text style={s.greetingAvatarInitial}>
+                  {name.charAt(0).toUpperCase() || "?"}
+                </Text>
+              </View>
+            )}
             <View style={{ flex: 1 }}>
               <Text style={s.greetingLabel}>Welcome back,</Text>
               <Text style={s.greetingName}>{name}</Text>
@@ -425,12 +453,12 @@ export default function CleanerHomeScreen() {
                               activeOpacity={0.85}
                             >
                               <Feather
-                                name={isInProgress ? "activity" : "play-circle"}
+                                name={isInProgress ? "activity" : "arrow-right-circle"}
                                 size={16}
                                 color="#fff"
                               />
                               <Text style={s.startBtnText}>
-                                {isInProgress ? "Resume Active Job" : "Start Job"}
+                                {isInProgress ? "Resume Active Job" : "View Job"}
                               </Text>
                             </TouchableOpacity>
                           )

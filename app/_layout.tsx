@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar'
 import * as Notifications from 'expo-notifications'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { registerPushToken } from '@/lib/pushNotifications'
 import { ThemeProvider, useTheme } from '@/context/ThemeContext'
 
 Notifications.setNotificationHandler({
@@ -45,6 +46,7 @@ function RootLayoutInner() {
       if (session) {
         await navigateByRole(session.user.id)
         subscribeToNotifications(session.user.id)
+        registerPushToken(session.user.id)
       }
     })
 
@@ -52,6 +54,7 @@ function RootLayoutInner() {
       if (event === 'SIGNED_IN' && session) {
         await navigateByRole(session.user.id)
         subscribeToNotifications(session.user.id)
+        registerPushToken(session.user.id)
       } else if (event === 'SIGNED_OUT') {
         notifChannelRef.current?.unsubscribe()
         notifChannelRef.current = null
