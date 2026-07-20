@@ -1,9 +1,11 @@
-import { View, Text, ScrollView } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useState } from 'react'
+import { View, Text, ScrollView, TouchableOpacity, NativeSyntheticEvent, NativeScrollEvent } from 'react-native'
+import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import AppHeader from '@/components/AppHeader'
+import { setPrivacyAccepted } from '@/lib/privacyAck'
 
 const LAST_UPDATED = 'July 14, 2026'
 
@@ -89,12 +91,43 @@ const SECTIONS: Array<{ icon: React.ComponentProps<typeof Feather>['name']; titl
 export default function PrivacyPolicyScreen() {
   const router = useRouter()
   const C = useThemeColors()
+  const { from } = useLocalSearchParams<{ from?: string }>()
+  const requiredRead = from === 'register'
+  const [reachedEnd, setReachedEnd] = useState(false)
+  const [contentHeight, setContentHeight] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+
+  function checkReachedEnd(scrollY: number, viewport: number, content: number) {
+    if (content <= viewport || viewport + scrollY >= content - 32) {
+      setReachedEnd(true)
+    }
+  }
+
+  function handleScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (reachedEnd) return
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent
+    checkReachedEnd(contentOffset.y, layoutMeasurement.height, contentSize.height)
+  }
+
+  function confirmRead() {
+    // Signal the still-mounted register screen via a shared store, then go back to that
+    // exact instance (router.back, not navigate) so all typed-in form fields are preserved.
+    setPrivacyAccepted(true)
+    router.back()
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.background }}>
       <AppHeader showBack onBackPress={() => router.back()} title="Privacy Policy" hideBell />
 
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: requiredRead ? 100 : 40 }}
+        showsVerticalScrollIndicator={false}
+        onScroll={requiredRead ? handleScroll : undefined}
+        scrollEventThrottle={100}
+        onContentSizeChange={requiredRead ? (_w, h) => { setContentHeight(h); checkReachedEnd(0, viewportHeight, h) } : undefined}
+        onLayout={requiredRead ? (e) => { const h = e.nativeEvent.layout.height; setViewportHeight(h); checkReachedEnd(0, h, contentHeight) } : undefined}
+      >
         <View style={{
           backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.border,
           padding: 16, gap: 6,
@@ -148,6 +181,35 @@ export default function PrivacyPolicyScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {requiredRead && (
+        <View style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0,
+          backgroundColor: C.white, borderTopWidth: 1, borderTopColor: C.border,
+          padding: 16, paddingBottom: 28,
+        }}>
+          {!reachedEnd && (
+            <Text style={{ fontSize: 12, color: C.textMuted, textAlign: 'center', marginBottom: 8 }}>
+              Scroll to the bottom to continue
+            </Text>
+          )}
+          <TouchableOpacity
+            onPress={confirmRead}
+            disabled={!reachedEnd}
+            activeOpacity={0.85}
+            style={{
+              backgroundColor: reachedEnd ? Colors.primary : C.border,
+              borderRadius: 14, paddingVertical: 15, alignItems: 'center',
+              flexDirection: 'row', justifyContent: 'center', gap: 8,
+            }}
+          >
+            <Feather name="check-circle" size={16} color={reachedEnd ? '#fff' : C.textMuted} />
+            <Text style={{ color: reachedEnd ? '#fff' : C.textMuted, fontWeight: '700', fontSize: 14 }}>
+              I Understand — Back to Registration
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   )
 }

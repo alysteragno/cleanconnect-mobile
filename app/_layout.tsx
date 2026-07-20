@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { registerPushToken } from '@/lib/pushNotifications'
+import { getOtpPending } from '@/lib/authFlow'
 import { ThemeProvider, useTheme } from '@/context/ThemeContext'
 
 Notifications.setNotificationHandler({
@@ -51,6 +52,11 @@ function RootLayoutInner() {
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Login is a password step followed by an emailed OTP step. Both the password
+      // check and the signOut() between the two steps fire their own transient
+      // SIGNED_IN/SIGNED_OUT here — ignore them until the OTP step actually finishes.
+      if (getOtpPending()) return
+
       if (event === 'SIGNED_IN' && session) {
         await navigateByRole(session.user.id)
         subscribeToNotifications(session.user.id)

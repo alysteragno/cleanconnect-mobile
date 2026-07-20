@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, Image,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, StyleSheet,
@@ -6,6 +6,8 @@ import {
 import { Link, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
+import { getPrivacyAccepted, setPrivacyAccepted, subscribePrivacyAccepted } from '@/lib/privacyAck'
+import { validateFullName, validateEmail, sanitizeText } from '@/lib/sanitize'
 
 const PWD_RULES = [
   { label: 'At least 8 characters',         test: (p: string) => p.length >= 8 },
@@ -17,6 +19,7 @@ const PWD_RULES = [
 
 export default function RegisterScreen() {
   const router = useRouter()
+  const hasReadPrivacy = useSyncExternalStore(subscribePrivacyAccepted, getPrivacyAccepted)
   const [fullName,        setFullName]        = useState('')
   const [email,           setEmail]           = useState('')
   const [password,        setPassword]        = useState('')
@@ -28,11 +31,22 @@ export default function RegisterScreen() {
   const [showConfirm,     setShowConfirm]     = useState(false)
   const [focused,         setFocused]         = useState<string | null>(null)
   const [phoneError,      setPhoneError]      = useState('')
+  const [nameError,       setNameError]       = useState('')
   const [showRules,       setShowRules]       = useState(false)
+  const [sent,            setSent]            = useState(false)
+
+  // Reset for the next time this screen is mounted fresh (e.g. after a successful
+  // registration, or if the user navigates away and back in a later session).
+  useEffect(() => () => setPrivacyAccepted(false), [])
 
   function validatePhone(value: string) {
     setPhone(value)
     setPhoneError(value.length > 0 && !/^09[0-9]{9}$/.test(value) ? 'Invalid phone number format' : '')
+  }
+
+  function onFullNameChange(value: string) {
+    setFullName(value)
+    setNameError(value.length > 0 ? (validateFullName(value) ?? '') : '')
   }
 
   const rulesMet      = PWD_RULES.map(r => r.test(password))
@@ -40,8 +54,19 @@ export default function RegisterScreen() {
   const passwordMatch = password === confirmPassword
 
   async function handleRegister() {
-    if (!fullName.trim() || !email.trim() || !password) {
-      setError('Full name, email, and password are required.')
+    const fullNameIssue = validateFullName(fullName)
+    if (fullNameIssue) {
+      setNameError(fullNameIssue)
+      setError(fullNameIssue)
+      return
+    }
+    const emailIssue = validateEmail(email)
+    if (emailIssue) {
+      setError(emailIssue)
+      return
+    }
+    if (!password) {
+      setError('Password is required.')
       return
     }
     if (!allRulesMet) {
@@ -56,39 +81,52 @@ export default function RegisterScreen() {
       setError('Please fix the phone number before continuing.')
       return
     }
+    if (!hasReadPrivacy) {
+      setError('Please read our Privacy Policy before creating an account.')
+      return
+    }
 
     setLoading(true)
     setError(null)
 
+    const cleanFullName = sanitizeText(fullName)
+    const cleanEmail = email.trim()
+    const cleanPhone = phone.trim() || null
+    const webUrl = process.env.EXPO_PUBLIC_WEB_URL
+
+    // profiles row is created by the on_auth_user_created DB trigger (see migration
+    // 20260720000003), not here — that works whether or not email confirmation is on,
+    // whereas an authenticated-client insert would fail RLS when there's no session yet
+    // (i.e. as soon as "Confirm email" is enabled in the Supabase dashboard).
     const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
+      email: cleanEmail,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: { full_name: cleanFullName, phone: cleanPhone },
+        ...(webUrl ? { emailRedirectTo: `${webUrl}/login` } : {}),
+      },
     })
+
+    setLoading(false)
 
     if (signUpError) {
       setError(signUpError.message)
-      setLoading(false)
+      return
+    }
+    if (!data.user) {
+      setError('Registration failed. Please try again.')
       return
     }
 
-    if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: data.user.id,
-        full_name: fullName.trim(),
-        phone: phone.trim() || null,
-        role: 'customer',
-        is_active: true,
-      })
-
-      if (profileError) {
-        setError(profileError.message)
-        setLoading(false)
-        return
-      }
-
+    if (data.session) {
+      // Email confirmation is off for this project — user is already signed in.
       router.replace('/(customer)')
+      return
     }
+
+    // Email confirmation is required — the DB trigger already created the profile row,
+    // but there's no session until the user clicks the link in their inbox.
+    setSent(true)
   }
 
   return (
@@ -109,23 +147,42 @@ export default function RegisterScreen() {
             <Text style={s.brand}>Maid For You Cleaning Services</Text>
           </View>
 
+          {sent ? (
+            <>
+              <View style={s.successIcon}>
+                <Feather name="mail" size={32} color="#db2777" />
+              </View>
+              <Text style={s.title}>Check your inbox</Text>
+              <Text style={s.subtitle}>
+                We sent a confirmation link to{'\n'}
+                <Text style={{ fontWeight: '700', color: '#111827' }}>{email.trim()}</Text>
+                {'\n\n'}Verify your email, then come back and sign in. Check your spam folder if you don't see it within a minute.
+              </Text>
+              <TouchableOpacity style={s.btn} onPress={() => router.replace('/(auth)/login')} activeOpacity={0.85}>
+                <Text style={s.btnText}>Back to Sign In</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+          <>
           <Text style={s.title}>Create account</Text>
           <Text style={s.subtitle}>Book your first cleaning in minutes</Text>
 
           {/* Full name */}
-          <View style={[s.inputRow, focused === 'name' && s.inputFocused]}>
-            <Feather name="user" size={16} color={focused === 'name' ? '#db2777' : '#9ca3af'} style={s.icon} />
+          <View style={[s.inputRow, focused === 'name' && s.inputFocused, nameError && s.inputError]}>
+            <Feather name="user" size={16} color={nameError ? '#dc2626' : focused === 'name' ? '#db2777' : '#9ca3af'} style={s.icon} />
             <TextInput
               style={s.input}
               placeholder="Full name"
               placeholderTextColor="#9ca3af"
               autoCapitalize="words"
+              maxLength={80}
               value={fullName}
-              onChangeText={setFullName}
+              onChangeText={onFullNameChange}
               onFocus={() => setFocused('name')}
               onBlur={() => setFocused(null)}
             />
           </View>
+          {nameError ? <Text style={s.fieldError}>{nameError}</Text> : null}
 
           {/* Email */}
           <View style={[s.inputRow, focused === 'email' && s.inputFocused]}>
@@ -239,20 +296,34 @@ export default function RegisterScreen() {
             </View>
           )}
 
-          <TouchableOpacity style={s.btn} onPress={handleRegister} disabled={loading} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={s.privacyRow}
+            onPress={() => router.push({ pathname: '/privacy-policy', params: { from: 'register' } })}
+            activeOpacity={0.7}
+          >
+            <Feather
+              name={hasReadPrivacy ? 'check-circle' : 'circle'}
+              size={18}
+              color={hasReadPrivacy ? '#16a34a' : '#9ca3af'}
+            />
+            <Text style={s.privacyRowText}>
+              {hasReadPrivacy ? 'You have read and agree to our ' : 'You must read our '}
+              <Text style={s.privacyLink}>Privacy Policy</Text>
+              {' '}before continuing.
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[s.btn, !hasReadPrivacy && s.btnDisabled]}
+            onPress={handleRegister}
+            disabled={loading || !hasReadPrivacy}
+            activeOpacity={0.85}
+          >
             {loading
               ? <ActivityIndicator color="#fff" />
               : <Text style={s.btnText}>Create Account</Text>
             }
           </TouchableOpacity>
-
-          <Text style={s.privacyNote}>
-            By creating an account, you agree to our{' '}
-            <Text style={s.privacyLink} onPress={() => router.push('/privacy-policy')}>
-              Privacy Policy
-            </Text>
-            .
-          </Text>
 
           <View style={s.footer}>
             <Text style={s.footerText}>Already have an account? </Text>
@@ -260,6 +331,8 @@ export default function RegisterScreen() {
               <Text style={s.footerLink}>Sign In</Text>
             </Link>
           </View>
+          </>
+          )}
         </View>
 
       </ScrollView>
@@ -286,7 +359,13 @@ const s = StyleSheet.create({
     flex: 1,
   },
   title:    { fontSize: 23, fontWeight: '800', color: '#111827', marginBottom: 4 },
-  subtitle: { fontSize: 13, color: '#6b7280', marginBottom: 28 },
+  subtitle: { fontSize: 13, color: '#6b7280', marginBottom: 28, lineHeight: 20 },
+  successIcon: {
+    width: 72, height: 72, borderRadius: 22,
+    backgroundColor: '#fce7f3',
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 20,
+  },
 
   inputRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -319,16 +398,22 @@ const s = StyleSheet.create({
   },
   errorText: { flex: 1, fontSize: 13, color: '#dc2626', lineHeight: 18 },
 
+  privacyRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb',
+    borderRadius: 12, padding: 12, marginTop: 6, marginBottom: 14,
+  },
+  privacyRowText: { flex: 1, fontSize: 12.5, color: '#6b7280', lineHeight: 17 },
+  privacyLink: { color: '#db2777', fontWeight: '700' },
+
   btn: {
     backgroundColor: '#db2777', borderRadius: 14, paddingVertical: 16,
     alignItems: 'center', marginTop: 6,
     shadowColor: '#db2777', shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35, shadowRadius: 10, elevation: 5,
   },
+  btnDisabled: { backgroundColor: '#f3a8ce', shadowOpacity: 0 },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 15, letterSpacing: 0.2 },
-
-  privacyNote: { fontSize: 12, color: '#6b7280', textAlign: 'center', marginTop: 14, lineHeight: 17 },
-  privacyLink: { color: '#db2777', fontWeight: '700' },
 
   footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },
   footerText: { fontSize: 13, color: '#6b7280' },
