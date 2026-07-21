@@ -316,6 +316,12 @@ export default function BookingDetailScreen() {
       // Refetch either way — payment is confirmed server-side by the PayMongo
       // webhook, so the freshly-loaded row reflects the real status.
       await load()
+    } catch (err) {
+      // startPaymongoCheckout typically returns a typed error instead of throwing,
+      // but WebBrowser.openBrowserAsync itself can still throw — without this, that
+      // failure was silent (button just looked like it did nothing).
+      console.error('[handlePayNow] unexpected error:', err)
+      Alert.alert('Payment', 'Something went wrong opening the payment page. Please try again.')
     } finally {
       setPaying(false)
     }

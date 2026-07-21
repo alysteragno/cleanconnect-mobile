@@ -112,12 +112,22 @@ export default function LoginScreen() {
         setError('Please confirm your email before signing in. Check your inbox for the confirmation link.')
         return
       }
+
+      // signInWithPassword deliberately returns the same generic error for a wrong
+      // password vs. an unknown email — this RPC (SECURITY DEFINER, returns a bare
+      // boolean) is the only way to tell them apart. Falls back to the generic message
+      // if the RPC itself errors (e.g. migration not applied yet), so this never crashes.
+      const { data: emailExists } = await supabase.rpc('check_email_exists', { p_email: cleanEmail })
+      const baseMessage = emailExists === false
+        ? 'No account found with that email address.'
+        : authError.message
+
       failedAttempts.current += 1
       if (failedAttempts.current >= MAX_ATTEMPTS) {
         setError(`Too many failed attempts. Please wait ${LOCKOUT_SECONDS} seconds before trying again.`)
         startLockout()
       } else {
-        setError(`${authError.message} (${MAX_ATTEMPTS - failedAttempts.current} attempt${MAX_ATTEMPTS - failedAttempts.current === 1 ? '' : 's'} remaining)`)
+        setError(`${baseMessage} (${MAX_ATTEMPTS - failedAttempts.current} attempt${MAX_ATTEMPTS - failedAttempts.current === 1 ? '' : 's'} remaining)`)
       }
       return
     }

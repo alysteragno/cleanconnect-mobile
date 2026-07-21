@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
+import * as Linking from 'expo-linking'
 import { supabase } from '@/lib/supabase'
 import { getPrivacyAccepted, setPrivacyAccepted, subscribePrivacyAccepted } from '@/lib/privacyAck'
 import { validateFullName, validateEmail, sanitizeText } from '@/lib/sanitize'
@@ -92,7 +93,11 @@ export default function RegisterScreen() {
     const cleanFullName = sanitizeText(fullName)
     const cleanEmail = email.trim()
     const cleanPhone = phone.trim() || null
-    const webUrl = process.env.EXPO_PUBLIC_WEB_URL
+    // Sends the confirmation link straight back into this app (cleanconnect://login
+    // in a production/EAS build) instead of the website — must also be added to
+    // Supabase Dashboard → Authentication → URL Configuration → Redirect URLs
+    // (e.g. `cleanconnect://**`) or Supabase silently falls back to the Site URL.
+    const confirmRedirectUrl = Linking.createURL('/login')
 
     // profiles row is created by the on_auth_user_created DB trigger (see migration
     // 20260720000003), not here — that works whether or not email confirmation is on,
@@ -103,7 +108,7 @@ export default function RegisterScreen() {
       password,
       options: {
         data: { full_name: cleanFullName, phone: cleanPhone },
-        ...(webUrl ? { emailRedirectTo: `${webUrl}/login` } : {}),
+        emailRedirectTo: confirmRedirectUrl,
       },
     })
 
