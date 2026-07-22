@@ -5,8 +5,6 @@ import {
 } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
-import * as Linking from 'expo-linking'
-import { supabase } from '@/lib/supabase'
 import { getPrivacyAccepted, setPrivacyAccepted, subscribePrivacyAccepted } from '@/lib/privacyAck'
 import { validateFullName, validateEmail, sanitizeText } from '@/lib/sanitize'
 
@@ -93,44 +91,42 @@ export default function RegisterScreen() {
     const cleanFullName = sanitizeText(fullName)
     const cleanEmail = email.trim()
     const cleanPhone = phone.trim() || null
-    // Sends the confirmation link straight back into this app (cleanconnect://login
-    // in a production/EAS build) instead of the website — must also be added to
-    // Supabase Dashboard → Authentication → URL Configuration → Redirect URLs
-    // (e.g. `cleanconnect://**`) or Supabase silently falls back to the Site URL.
-    const confirmRedirectUrl = Linking.createURL('/login')
 
-    // profiles row is created by the on_auth_user_created DB trigger (see migration
-    // 20260720000003), not here — that works whether or not email confirmation is on,
-    // whereas an authenticated-client insert would fail RLS when there's no session yet
-    // (i.e. as soon as "Confirm email" is enabled in the Supabase dashboard).
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: cleanEmail,
-      password,
-      options: {
-        data: { full_name: cleanFullName, phone: cleanPhone },
-        emailRedirectTo: confirmRedirectUrl,
-      },
-    })
+    // Account creation + confirmation email now go through the same web
+    // endpoint the admin-created-customer flow uses (generateLink({ type:
+    // 'signup' }) + a branded email verified via /auth/callback), instead of
+    // calling supabase.auth.signUp() directly — that relied on Supabase's
+    // default confirmation email deep-linking back into this app, which
+    // isn't reliable across Expo Go / custom URL scheme setups.
+    let res: Response
+    try {
+      res = await fetch(`${process.env.EXPO_PUBLIC_WEB_URL}/api/mobile/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: cleanFullName,
+          email: cleanEmail,
+          password,
+          phone: cleanPhone,
+        }),
+      })
+    } catch {
+      setLoading(false)
+      setError('Could not reach the server. Check your connection and try again.')
+      return
+    }
 
+    const json = await res.json().catch(() => ({}))
     setLoading(false)
 
-    if (signUpError) {
-      setError(signUpError.message)
-      return
-    }
-    if (!data.user) {
-      setError('Registration failed. Please try again.')
+    if (!res.ok) {
+      setError(json.error ?? 'Registration failed. Please try again.')
       return
     }
 
-    if (data.session) {
-      // Email confirmation is off for this project — user is already signed in.
-      router.replace('/(customer)')
-      return
-    }
-
-    // Email confirmation is required — the DB trigger already created the profile row,
-    // but there's no session until the user clicks the link in their inbox.
+    // No session is returned — the account was created server-side via the
+    // admin API. There's nothing to sign into until the customer confirms
+    // their email.
     setSent(true)
   }
 

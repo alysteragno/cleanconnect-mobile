@@ -5,7 +5,6 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
-import { supabase } from '@/lib/supabase'
 
 export default function ForgotPasswordScreen() {
   const router = useRouter()
@@ -25,24 +24,33 @@ export default function ForgotPasswordScreen() {
 
     // The mobile app has no reset-password screen of its own — the email link
     // opens the web app's reset page instead (same Supabase project/DB).
-    // Must be explicit: without redirectTo, Supabase falls back to the
-    // project's dashboard-configured Site URL, which may not match the
-    // current web deployment.
-    //
-    // Goes straight to /reset-password (NOT /auth/callback): this mobile
-    // client uses the default implicit flow, so the email link carries
-    // #access_token=... in a hash fragment, which a server route can never
-    // see. /auth/callback only handles the web's own PKCE ?code= flow.
-    // /reset-password reads the hash client-side instead.
-    const webUrl = process.env.EXPO_PUBLIC_WEB_URL
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      email.trim().toLowerCase(),
-      webUrl ? { redirectTo: `${webUrl}/reset-password` } : undefined
-    )
+    // Goes through the same web endpoint the registration screen uses
+    // (generateLink({ type: 'magiclink' }) + a branded email verified via
+    // /auth/callback → /reset-password — see forgotPassword in the web
+    // repo's src/app/actions/auth.ts, and /api/mobile/forgot-password),
+    // instead of calling supabase.auth.resetPasswordForEmail() directly.
+    // That relied on Supabase's own default reset-password email and the
+    // implicit flow's #access_token hash fragment, which is what
+    // /reset-password's useRecoverySessionFromHash still supports as a
+    // fallback but is no longer what this screen produces.
+    let res: Response
+    try {
+      res = await fetch(`${process.env.EXPO_PUBLIC_WEB_URL}/api/mobile/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      })
+    } catch {
+      setLoading(false)
+      setError('Could not reach the server. Check your connection and try again.')
+      return
+    }
+
     setLoading(false)
 
-    if (resetError) {
-      setError(resetError.message)
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      setError(json.error ?? 'Something went wrong. Please try again.')
       return
     }
 
