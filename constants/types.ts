@@ -50,6 +50,8 @@ export type Profile = {
   branch_id: string | null
   is_active: boolean
   photo_url: string | null
+  emergency_contact_name: string | null
+  emergency_contact_phone: string | null
 }
 
 export type Booking = {

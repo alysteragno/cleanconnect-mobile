@@ -13,6 +13,11 @@ import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
 import { Booking, BookingStatus, STATUS_LABELS } from '@/constants/types'
 import { useServices } from '@/hooks/useServices'
+import { PAYMONGO_ENABLED } from '@/constants/config'
+import { isPaymongoMethod } from '@/lib/paymongo'
+import GCashLogo from '@/assets/gcash_logo.svg'
+import MayaLogo from '@/assets/maya_logo.svg'
+import QrphLogo from '@/assets/qrph_logo.svg'
 
 const SPACE_IMAGES: Record<string, any> = {
   residential: require('@/assets/services/residential_cleaning.webp'),
@@ -29,6 +34,76 @@ const STATUS_COLORS: Record<BookingStatus, { bg: string; text: string; dot: stri
   in_progress: { bg: '#f5f3ff', text: '#4c1d95', dot: '#7c3aed' },
   completed:   { bg: '#f0fdf4', text: '#14532d', dot: '#16a34a' },
   cancelled:   { bg: '#fee2e2', text: '#7f1d1d', dot: '#dc2626' },
+}
+
+// Short list-view labels — bookings/[id].tsx has the fuller "Cash on Service
+// Day" etc. wording, but that's too long for a compact card pill.
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash:          'Cash',
+  gcash:         'GCash',
+  maya:          'Maya',
+  bank_transfer: 'Bank Transfer',
+  bank_check:    'Bank Check',
+}
+
+/**
+ * Compact version of the icon set already used on the booking detail screen
+ * (bookings/[id].tsx) — same brand marks (QR Ph / GCash / Maya) and the same
+ * green ₱ badge for cash, just sized down for a list-row pill instead of a
+ * detail-page row.
+ */
+function PaymentMethodIcon({ method, C }: { method: string; C: ReturnType<typeof useThemeColors> }) {
+  const boxStyle = {
+    width: 18, height: 18, borderRadius: 5,
+    alignItems: 'center' as const, justifyContent: 'center' as const, overflow: 'hidden' as const,
+  }
+
+  if (PAYMONGO_ENABLED && isPaymongoMethod(method)) {
+    return (
+      <View style={[boxStyle, { backgroundColor: '#fff', borderWidth: 1, borderColor: C.borderLight }]}>
+        <QrphLogo width={14} height={14} />
+      </View>
+    )
+  }
+  if (method === 'cash') {
+    return (
+      <View style={[boxStyle, { backgroundColor: '#16a34a' }]}>
+        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>₱</Text>
+      </View>
+    )
+  }
+  if (method === 'gcash') {
+    return (
+      <View style={[boxStyle, { backgroundColor: '#fff', borderWidth: 1, borderColor: C.borderLight }]}>
+        <GCashLogo width={14} height={14} />
+      </View>
+    )
+  }
+  if (method === 'maya') {
+    return (
+      <View style={[boxStyle, { backgroundColor: '#0a1628' }]}>
+        <MayaLogo width={13} height={4} />
+      </View>
+    )
+  }
+  if (method === 'bank_transfer') {
+    return (
+      <View style={[boxStyle, { backgroundColor: '#1d4ed8' }]}>
+        <Feather name="home" size={10} color="#fff" />
+      </View>
+    )
+  }
+  // bank_check and any unrecognized method
+  return (
+    <View style={[boxStyle, { backgroundColor: C.background, borderWidth: 1, borderColor: C.borderLight }]}>
+      <Feather name="file-text" size={10} color={C.textMuted} />
+    </View>
+  )
+}
+
+function paymentMethodLabel(method: string): string {
+  if (PAYMONGO_ENABLED && isPaymongoMethod(method)) return 'Online Payment'
+  return PAYMENT_METHOD_LABELS[method] ?? method
 }
 
 const FILTERS: Array<{ label: string; value: BookingStatus | 'all' }> = [
@@ -308,11 +383,11 @@ export default function BookingsHistoryScreen() {
 
               {/* Bottom row */}
               <View style={{
-                flexDirection: 'row', alignItems: 'center',
+                flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap',
                 paddingHorizontal: 14, paddingVertical: 10,
                 backgroundColor: C.background,
                 borderTopWidth: 1, borderTopColor: C.borderLight,
-                gap: 8,
+                gap: 8, rowGap: 6,
               }}>
                 <View style={{
                   flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -322,6 +397,17 @@ export default function BookingsHistoryScreen() {
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sc.dot }} />
                   <Text style={{ fontSize: 11, fontWeight: '700', color: sc.text }}>
                     {STATUS_LABELS[b.status as BookingStatus]}
+                  </Text>
+                </View>
+
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  backgroundColor: C.white, borderRadius: 99, borderWidth: 1, borderColor: C.border,
+                  paddingHorizontal: 8, paddingVertical: 3,
+                }}>
+                  <PaymentMethodIcon method={b.payment_method} C={C} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.textSecondary }}>
+                    {paymentMethodLabel(b.payment_method)}
                   </Text>
                 </View>
 

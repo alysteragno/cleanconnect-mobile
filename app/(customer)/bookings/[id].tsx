@@ -13,6 +13,7 @@ import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
 import AppHeader from '@/components/AppHeader'
 import JobLocationModal from '@/components/JobLocationModal'
+import PaymongoQrModal from '@/components/PaymongoQrModal'
 import LocationMapPicker, { Coord, GeocodedParts } from '@/components/LocationMapPicker'
 import {
   Booking, BookingStatus, Feedback,
@@ -20,7 +21,7 @@ import {
 } from '@/constants/types'
 import { useServices } from '@/hooks/useServices'
 import { PAYMONGO_ENABLED } from '@/constants/config'
-import { startPaymongoCheckout, isPaymongoMethod } from '@/lib/paymongo'
+import { isPaymongoMethod } from '@/lib/paymongo'
 import GCashLogo from '@/assets/gcash_logo.svg'
 import MayaLogo from '@/assets/maya_logo.svg'
 import QrphLogo from '@/assets/qrph_logo.svg'
@@ -116,6 +117,7 @@ export default function BookingDetailScreen() {
   const [refreshing,       setRefreshing]       = useState(false)
   const [cancelling,       setCancelling]       = useState(false)
   const [paying,           setPaying]           = useState(false)
+  const [showQrModal,      setShowQrModal]      = useState(false)
   const [showLocationPicker, setShowLocationPicker] = useState(false)
   const [savingLocation,     setSavingLocation]     = useState(false)
   const scrollRef = useRef<ScrollView>(null)
@@ -130,6 +132,7 @@ export default function BookingDetailScreen() {
     return () => { show.remove(); hide.remove() }
   }, [])
   const [cleanerMapModal, setCleanerMapModal] = useState<{ lat: number; lng: number; name: string | null; address: string } | null>(null)
+  const [showServiceLocationModal, setShowServiceLocationModal] = useState(false)
   const [assignedCleaners, setAssignedCleaners] = useState<Array<{
     id: string
     name: string | null
@@ -137,8 +140,25 @@ export default function BookingDetailScreen() {
     eta: { distKm: number; etaMin: number } | null
     location: { lat: number; lng: number } | null
   }>>([])
+  const [customerInfo, setCustomerInfo] = useState<{ name: string; email: string; phone: string } | null>(null)
 
   useEffect(() => { load() }, [id])
+
+  // Fetched once (not on every load()/poll tick) — only used to prefill the
+  // read-only "Payment Details" summary in PaymongoQrModal, not booking data.
+  useEffect(() => {
+    async function loadCustomerInfo() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: profile } = await supabase.from('profiles').select('full_name, phone').eq('id', user.id).single()
+      setCustomerInfo({
+        name: profile?.full_name ?? '',
+        email: user.email ?? '',
+        phone: profile?.phone ?? '',
+      })
+    }
+    loadCustomerInfo()
+  }, [])
 
   // Live booking updates via Realtime
   useEffect(() => {
@@ -305,26 +325,24 @@ export default function BookingDetailScreen() {
     )
   }
 
-  async function handlePayNow() {
+  function handlePayNow() {
     if (!booking || paying) return
     setPaying(true)
-    try {
-      const result = await startPaymongoCheckout(booking.id)
-      if (result.status === 'error') {
-        Alert.alert('Payment', result.message)
-      }
-      // Refetch either way — payment is confirmed server-side by the PayMongo
-      // webhook, so the freshly-loaded row reflects the real status.
-      await load()
-    } catch (err) {
-      // startPaymongoCheckout typically returns a typed error instead of throwing,
-      // but WebBrowser.openBrowserAsync itself can still throw — without this, that
-      // failure was silent (button just looked like it did nothing).
-      console.error('[handlePayNow] unexpected error:', err)
-      Alert.alert('Payment', 'Something went wrong opening the payment page. Please try again.')
-    } finally {
-      setPaying(false)
-    }
+    setShowQrModal(true)
+  }
+
+  function handleQrModalPaid() {
+    setShowQrModal(false)
+    setPaying(false)
+    load()
+  }
+
+  function handleQrModalClose() {
+    setShowQrModal(false)
+    setPaying(false)
+    // Payment is confirmed server-side while the QR is on screen — refetch so
+    // the booking row reflects whatever happened while it was open.
+    load()
   }
 
   // Bookings created by an admin (phone-in/walk-in) don't get a GPS pin at
@@ -675,6 +693,57 @@ export default function BookingDetailScreen() {
                   </Text>
                 </View>
               ) : null}
+              {booking.service_lat && booking.service_lng ? (
+                <View>
+                  <Text style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>Your Pinned Location</Text>
+                  <TouchableOpacity
+                    onPress={() => setShowServiceLocationModal(true)}
+                    activeOpacity={0.88}
+                    style={{ borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: C.border }}
+                  >
+                    <MapView
+                      provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
+                      style={{ height: 120 }}
+                      region={{
+                        latitude: Number(booking.service_lat),
+                        longitude: Number(booking.service_lng),
+                        latitudeDelta: 0.008,
+                        longitudeDelta: 0.008,
+                      }}
+                      scrollEnabled={false}
+                      zoomEnabled={false}
+                      rotateEnabled={false}
+                      pitchEnabled={false}
+                      pointerEvents="none"
+                    >
+                      <Marker
+                        coordinate={{ latitude: Number(booking.service_lat), longitude: Number(booking.service_lng) }}
+                        pinColor={Colors.primary}
+                      />
+                    </MapView>
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 12,
+                      backgroundColor: C.white, paddingVertical: 11, paddingHorizontal: 14,
+                    }}>
+                      <View style={{
+                        width: 34, height: 34, borderRadius: 17,
+                        backgroundColor: '#fce7f3', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Feather name="map-pin" size={16} color={Colors.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>
+                          View Full Map
+                        </Text>
+                        <Text style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>
+                          Tap to view your GPS pin
+                        </Text>
+                      </View>
+                      <Feather name="chevron-right" size={16} color={C.textMuted} />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
               {!booking.service_lat && booking.status !== 'completed' && booking.status !== 'cancelled' && (
                 <View>
                   <TouchableOpacity
@@ -1006,11 +1075,37 @@ export default function BookingDetailScreen() {
         />
       )}
 
+      {showServiceLocationModal && booking?.service_lat && booking?.service_lng && (
+        <JobLocationModal
+          visible
+          coord={{ latitude: Number(booking.service_lat), longitude: Number(booking.service_lng) }}
+          serviceLabel="Your Pinned Location"
+          panelLabel="YOUR PINNED LOCATION"
+          address={[booking.address_unit, booking.address_street].filter(Boolean).join(', ') || undefined}
+          onClose={() => setShowServiceLocationModal(false)}
+        />
+      )}
+
       <LocationMapPicker
         visible={showLocationPicker}
         onConfirm={handleConfirmLocation}
         onClose={() => setShowLocationPicker(false)}
       />
+
+      {booking && (
+        <PaymongoQrModal
+          visible={showQrModal}
+          bookingId={booking.id}
+          onPaid={handleQrModalPaid}
+          onClose={handleQrModalClose}
+          customerName={customerInfo?.name || undefined}
+          customerEmail={customerInfo?.email || undefined}
+          customerPhone={customerInfo?.phone || undefined}
+          serviceLabel={serviceName}
+          amount={Number(booking.base_price ?? 0)}
+          bookingRef={booking.id.slice(0, 8).toUpperCase()}
+        />
+      )}
     </View>
   )
 }

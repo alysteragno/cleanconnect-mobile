@@ -11,6 +11,8 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import AppHeader from '@/components/AppHeader'
 import LocationMapPicker from '@/components/LocationMapPicker'
+import BookingDateCalendar from '@/components/BookingDateCalendar'
+import PaymongoQrModal from '@/components/PaymongoQrModal'
 import { Colors } from '@/constants/colors'
 import { useThemeColors } from '@/hooks/useThemeColors'
 import { useTheme } from '@/context/ThemeContext'
@@ -22,7 +24,7 @@ import { useServices } from '@/hooks/useServices'
 import { estimatePrice, estimateBookingPrice, estimateDurationHours, serviceNeedsSqm } from '@/constants/pricing'
 import { saveDraft, loadDraft, clearDraft, saveRecentBooking } from '@/lib/bookingDraft'
 import { PAYMONGO_ENABLED } from '@/constants/config'
-import { startPaymongoCheckout, isPaymongoMethod } from '@/lib/paymongo'
+import { isPaymongoMethod } from '@/lib/paymongo'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as MediaLibrary from 'expo-media-library'
 import * as ImageManipulator from 'expo-image-manipulator'
@@ -478,10 +480,24 @@ export default function NewBookingScreen() {
   const [step2Visited, setStep2Visited] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [termsExpanded, setTermsExpanded] = useState(false)
-  const [showDatePicker, setShowDatePicker] = useState(false)
   const [showTimePicker, setShowTimePicker] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [showQrModal, setShowQrModal] = useState(false)
+  const [qrBookingId, setQrBookingId] = useState<string | null>(null)
+  const [qrPaymentSummary, setQrPaymentSummary] = useState<{
+    customerName: string
+    customerEmail: string
+    customerPhone: string
+    serviceLabel: string
+    amount: number
+  } | null>(null)
+
+  // dateStr ('YYYY-MM-DD') -> booked time strings ('HH:MM') for this customer's
+  // own active (non-completed, non-cancelled) bookings — feeds both the Step 3
+  // calendar's crossed-out dates and the immediate date+time conflict check.
+  const [bookedSlots, setBookedSlots] = useState<Record<string, string[]>>({})
+  const [dateConflictError, setDateConflictError] = useState<string | null>(null)
 
   const [paymentSettings,  setPaymentSettings]  = useState<Record<string, string>>({})
   const [bankAccounts,     setBankAccounts]     = useState<BankAccount[] | undefined>(undefined)
@@ -631,9 +647,50 @@ export default function NewBookingScreen() {
     })
   }, [])
 
+  useEffect(() => {
+    async function loadBookedSlots() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from('bookings')
+        .select('service_date, service_time')
+        .eq('customer_id', user.id)
+        .neq('status', 'completed')
+        .neq('status', 'cancelled')
+
+      const map: Record<string, string[]> = {}
+      ;(data ?? []).forEach((row: { service_date: string; service_time: string }) => {
+        const timeKey = row.service_time?.slice(0, 5) // 'HH:MM:SS' -> 'HH:MM'
+        if (!timeKey) return
+        if (!map[row.service_date]) map[row.service_date] = []
+        map[row.service_date].push(timeKey)
+      })
+      setBookedSlots(map)
+    }
+    loadBookedSlots()
+  }, [])
+
   function update<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(f => ({ ...f, [key]: value }))
   }
+
+  function handleDateOrTimeChange(next: { date?: Date; time?: Date }) {
+    if (next.date) update('service_date', next.date)
+    if (next.time) update('service_time', next.time)
+  }
+
+  // Single source of truth for the Step 3 conflict banner — one booking per
+  // calendar day, regardless of time. Recomputes on any date change OR once
+  // booked slots finish loading, so a restored draft (date already set
+  // before bookedSlots loads) is re-checked too, not just fresh picker taps.
+  useEffect(() => {
+    if (form.service_date) {
+      const conflict = (bookedSlots[toDateString(form.service_date)] ?? []).length > 0
+      setDateConflictError(conflict ? 'You already have a booking scheduled on this date. Please choose a different date.' : null)
+    } else {
+      setDateConflictError(null)
+    }
+  }, [form.service_date, bookedSlots])
 
   // Area-based (General Cleaning) services collect property size; unit/flat-rate
   // services (aircon, mattress, sofa, carpet, grease trap, …) do not.
@@ -699,6 +756,7 @@ export default function NewBookingScreen() {
     if (step === 3) {
       if (!form.service_date) return { title: 'Date required', message: 'Please select a service date.' }
       if (!form.service_time) return { title: 'Time required', message: 'Please select a service time.' }
+      if (dateConflictError) return { title: 'Already booked', message: dateConflictError }
       if (!isWithinServiceHours(form.service_time))
         return { title: 'Outside service hours', message: 'Service is available from 8:00 AM to 5:00 PM only. Please choose a time within that window.' }
       const combined = new Date(form.service_date)
@@ -763,18 +821,19 @@ export default function NewBookingScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setError('Not authenticated.'); setSubmitting(false); return }
 
+    // One booking per calendar day, regardless of time — backstop against the
+    // Step 3 calendar check (race conditions, stale bookedSlots, etc).
     const { data: conflict } = await supabase
       .from('bookings')
       .select('id')
       .eq('customer_id', user.id)
       .eq('service_date', toDateString(form.service_date!))
-      .eq('service_time', toTimeString(form.service_time!))
       .neq('status', 'completed')
       .neq('status', 'cancelled')
       .limit(1)
       .maybeSingle()
     if (conflict?.id) {
-      setError('You already have a booking scheduled for that date and time. Please choose a different date or time.')
+      setError('You already have a booking scheduled on this date. Please choose a different date.')
       setSubmitting(false)
       return
     }
@@ -871,9 +930,12 @@ export default function NewBookingScreen() {
       serviceDetails.push(`${form.carpet_count} carpet${form.carpet_count !== 1 ? 's' : ''}`)
     const combinedFurniture = [...serviceDetails, form.other_furniture.trim()].filter(Boolean).join(', ')
 
+    const serviceName = getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type ?? 'general']
+    const basePrice = estimateBookingPrice(currentServiceSlug, form.service_type!, sqm)
+
     const { data, error: insertError } = await supabase.from('bookings').insert({
       customer_id: user.id,
-      service_name: getService(currentServiceSlug ?? '')?.name ?? SERVICE_LABELS[form.service_type ?? 'general'],
+      service_name: serviceName,
       service_slug: currentServiceSlug ?? null,
       space_type: form.space_type,
       property_sqm: sqm,
@@ -895,7 +957,7 @@ export default function NewBookingScreen() {
       special_notes: form.special_notes || null,
       status: 'pending',
       payment_status: 'unpaid',
-      base_price: estimateBookingPrice(currentServiceSlug, form.service_type!, sqm),
+      base_price: basePrice,
       required_cleaners: 1,
       duration_hours: estimateDurationHours(currentServiceSlug, sqm),
     }).select('id').single()
@@ -911,22 +973,35 @@ export default function NewBookingScreen() {
       service_date: toDateString(form.service_date!),
     })
 
-    // Online payment → collect now via PayMongo hosted checkout. Cash (on-site)
-    // and bank check (physical, admin-verified) skip PayMongo entirely.
+    // Online payment → collect now via a native in-app QR Ph code (no browser,
+    // no webview). Cash (on-site) and bank check (physical, admin-verified)
+    // skip PayMongo entirely and go straight to the booking detail screen.
     if (PAYMONGO_ENABLED && isPaymongoMethod(form.payment_method)) {
-      const result = await startPaymongoCheckout(data.id)
-      if (result.status === 'error') {
-        Alert.alert(
-          'Payment could not start',
-          `${result.message}\n\nYour booking has been created — you can complete payment anytime from the booking details screen.`,
-        )
-      }
-      // 'opened' / 'already_paid' fall through: the booking detail screen
-      // observes the booking row (realtime + polling) and reflects the
-      // webhook-confirmed payment status.
+      const { data: profile } = await supabase.from('profiles').select('full_name, phone').eq('id', user.id).single()
+      setQrPaymentSummary({
+        customerName: profile?.full_name ?? '',
+        customerEmail: user.email ?? '',
+        customerPhone: profile?.phone ?? '',
+        serviceLabel: serviceName,
+        amount: basePrice,
+      })
+      setQrBookingId(data.id)
+      setShowQrModal(true)
+      return
     }
 
     router.replace(`/(customer)/bookings/${data.id}`)
+  }
+
+  function closeQrModalAndNavigate() {
+    const bookingId = qrBookingId
+    setShowQrModal(false)
+    setQrBookingId(null)
+    setQrPaymentSummary(null)
+    // The booking already exists either way — paid or not, the detail screen
+    // observes the row (realtime + polling) and shows a "Pay Now" retry CTA
+    // if it's still unpaid.
+    if (bookingId) router.replace(`/(customer)/bookings/${bookingId}`)
   }
 
   if (checkingActive) {
@@ -1415,26 +1490,18 @@ export default function NewBookingScreen() {
           <View style={{ gap: 16 }}>
             <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>Select Preferred Date & Time</Text>
 
-            <DateTimeField
-              label="Date" value={form.service_date}
-              displayValue={form.service_date ? formatDisplayDate(form.service_date) : ''}
-              emptyText="Tap to select a date"
-              onPress={() => setShowDatePicker(true)}
-              show={showDatePicker} onDone={() => setShowDatePicker(false)} C={C}
-            >
-              <DateTimePicker
-                mode="date"
-                value={form.service_date ?? new Date()}
-                minimumDate={new Date(Date.now() + 24 * 60 * 60 * 1000)}
-                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                themeVariant={isDark ? 'dark' : 'light'}
-                accentColor={Colors.primary}
-                onChange={(_e: DateTimePickerEvent, date?: Date) => {
-                  if (Platform.OS === 'android') setShowDatePicker(false)
-                  if (date) update('service_date', date)
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 12, color: C.textSecondary }}>Date *</Text>
+              <BookingDateCalendar
+                selectedDate={form.service_date ? toDateString(form.service_date) : null}
+                minDate={toDateString(new Date(Date.now() + 24 * 60 * 60 * 1000))}
+                bookedDates={new Set(Object.keys(bookedSlots))}
+                onSelectDate={(dateStr) => {
+                  const [y, m, d] = dateStr.split('-').map(Number)
+                  handleDateOrTimeChange({ date: new Date(y, m - 1, d) })
                 }}
               />
-            </DateTimeField>
+            </View>
 
             <DateTimeField
               label="Time" value={form.service_time}
@@ -1452,10 +1519,27 @@ export default function NewBookingScreen() {
                 minuteInterval={30}
                 onChange={(_e: DateTimePickerEvent, date?: Date) => {
                   if (Platform.OS === 'android') setShowTimePicker(false)
-                  if (date) update('service_time', date)
+                  if (date) handleDateOrTimeChange({ time: date })
                 }}
               />
             </DateTimeField>
+
+            {/* Already-booked inline conflict */}
+            {dateConflictError && (
+              <View style={{
+                backgroundColor: '#fef2f2', borderRadius: 10, padding: 12,
+                borderWidth: 1, borderColor: '#fca5a5',
+                flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+              }}>
+                <Feather name="alert-circle" size={15} color="#dc2626" style={{ marginTop: 1 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#dc2626', marginBottom: 2 }}>
+                    Already booked
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#b91c1c', lineHeight: 17 }}>{dateConflictError}</Text>
+                </View>
+              </View>
+            )}
 
             {/* Out-of-hours inline warning */}
             {form.service_time && !isWithinServiceHours(form.service_time) && (
@@ -2153,6 +2237,21 @@ export default function NewBookingScreen() {
       {navBar}
 
       {submitting && <SubmitLoader isDark={isDark} C={C} />}
+
+      {qrBookingId && (
+        <PaymongoQrModal
+          visible={showQrModal}
+          bookingId={qrBookingId}
+          onPaid={closeQrModalAndNavigate}
+          onClose={closeQrModalAndNavigate}
+          customerName={qrPaymentSummary?.customerName || undefined}
+          customerEmail={qrPaymentSummary?.customerEmail || undefined}
+          customerPhone={qrPaymentSummary?.customerPhone || undefined}
+          serviceLabel={qrPaymentSummary?.serviceLabel}
+          amount={qrPaymentSummary?.amount}
+          bookingRef={qrBookingId.slice(0, 8).toUpperCase()}
+        />
+      )}
     </KeyboardAvoidingView>
   )
 }
