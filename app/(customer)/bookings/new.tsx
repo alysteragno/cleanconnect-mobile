@@ -365,7 +365,6 @@ const SPACE_OPTIONS: Array<{ key: SpaceType; label: string; icon: string; desc: 
 const PAYMENT_OPTIONS = [
   { key: 'cash',       label: 'Cash',           desc: 'Pay on the day of service' },
   { key: 'gcash',      label: 'Online Payment', desc: 'GCash, Maya, or any bank app via QR' },
-  { key: 'bank_check', label: 'Bank Check',     desc: 'Deliver a check before service' },
 ]
 
 const METRO_MANILA_CITIES = [
