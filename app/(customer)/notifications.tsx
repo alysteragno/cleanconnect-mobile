@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, SectionList,
+  View, Text, SectionList, Pressable,
   ActivityIndicator, RefreshControl,
 } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -31,6 +31,8 @@ type SectionItem =
   | { kind: 'notification'; data: Notification }
   | { kind: 'announcement'; data: Announcement }
 
+const ANNOUNCEMENTS_PAGE_SIZE = 10
+
 function formatTime(d: string) {
   const date = new Date(d)
   const now = new Date()
@@ -54,8 +56,22 @@ export default function CustomerNotificationsScreen() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [announcementsPage, setAnnouncementsPage] = useState(0)
+  const [hasMoreAnnouncements, setHasMoreAnnouncements] = useState(true)
+  const [loadingMoreAnnouncements, setLoadingMoreAnnouncements] = useState(false)
 
   useEffect(() => { load() }, [])
+
+  async function fetchAnnouncementsPage(page: number) {
+    const from = page * ANNOUNCEMENTS_PAGE_SIZE
+    const to = from + ANNOUNCEMENTS_PAGE_SIZE - 1
+    return supabase
+      .from('announcements')
+      .select('id, title, body, created_at')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .range(from, to)
+  }
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -67,15 +83,13 @@ export default function CustomerNotificationsScreen() {
         .select('id, title, body, type, is_read, created_at')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }),
-      supabase
-        .from('announcements')
-        .select('id, title, body, created_at')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false }),
+      fetchAnnouncementsPage(0),
     ])
 
     setNotifications((notifs ?? []) as Notification[])
     setAnnouncements((annouces ?? []) as Announcement[])
+    setAnnouncementsPage(0)
+    setHasMoreAnnouncements((annouces ?? []).length === ANNOUNCEMENTS_PAGE_SIZE)
     setLoading(false)
     setRefreshing(false)
 
@@ -83,6 +97,17 @@ export default function CustomerNotificationsScreen() {
     if (unreadIds.length > 0) {
       await supabase.from('notifications').update({ is_read: true }).in('id', unreadIds)
     }
+  }
+
+  async function loadMoreAnnouncements() {
+    if (loadingMoreAnnouncements || !hasMoreAnnouncements) return
+    setLoadingMoreAnnouncements(true)
+    const nextPage = announcementsPage + 1
+    const { data: annouces } = await fetchAnnouncementsPage(nextPage)
+    setAnnouncements(prev => [...prev, ...((annouces ?? []) as Announcement[])])
+    setAnnouncementsPage(nextPage)
+    setHasMoreAnnouncements((annouces ?? []).length === ANNOUNCEMENTS_PAGE_SIZE)
+    setLoadingMoreAnnouncements(false)
   }
 
   const sections = [
@@ -142,6 +167,27 @@ export default function CustomerNotificationsScreen() {
               </Text>
             </View>
           )}
+          renderSectionFooter={({ section }) => {
+            if (section.title !== 'Announcements' || !hasMoreAnnouncements) return null
+            return (
+              <Pressable
+                onPress={loadMoreAnnouncements}
+                disabled={loadingMoreAnnouncements}
+                style={{
+                  alignItems: 'center', justifyContent: 'center',
+                  paddingVertical: 12, marginBottom: 8,
+                }}
+              >
+                {loadingMoreAnnouncements ? (
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                ) : (
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary }}>
+                    Load more
+                  </Text>
+                )}
+              </Pressable>
+            )
+          }}
           renderItem={({ item }: { item: SectionItem }) => {
             if (item.kind === 'notification') {
               const n = item.data
