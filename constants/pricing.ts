@@ -45,8 +45,37 @@ export function estimateBookingPrice(
   return getService(slug ?? '')?.startingPrice ?? BASE_RATE[serviceType]
 }
 
-/** Estimated duration in hours — derived from sqm for area services, else a flat default. */
+/**
+ * Estimated duration in hours. Mirrors `apply_cleanconnect_operational_rules()`'s
+ * duration_hours tiering (cleanconnect-web's schema.sql) exactly, so a duration
+ * estimated here — before the booking is even submitted — matches what the DB
+ * trigger will actually store. Needed for accurate client-side time-slot
+ * conflict prediction (see the Step 3 date/time picker in bookings/new.tsx).
+ */
 export function estimateDurationHours(slug: string | undefined | null, sqm: number): number {
-  if (serviceNeedsSqm(slug) && sqm > 0) return Math.max(1, Math.ceil(sqm / 30))
-  return 2
+  if (!serviceNeedsSqm(slug) || sqm <= 0) return 2
+  if (sqm <= 30) return 2
+  if (sqm <= 60) return 3
+  if (sqm <= 100) return 4
+  return 4 + Math.ceil((sqm - 100) / 50)
+}
+
+export function timeToMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number)
+  return h * 60 + (m || 0)
+}
+
+/**
+ * Whether two [start, start + durationHours) windows (in minutes-since-
+ * midnight) overlap. No buffer — this is for the customer double-booking
+ * check (a customer can't physically be at two bookings at once), mirroring
+ * cleanconnect-web's src/lib/booking-pricing.ts windowsOverlap().
+ */
+export function windowsOverlap(
+  startA: number, durationHoursA: number,
+  startB: number, durationHoursB: number,
+): boolean {
+  const endA = startA + durationHoursA * 60
+  const endB = startB + durationHoursB * 60
+  return startA < endB && endA > startB
 }

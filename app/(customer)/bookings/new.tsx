@@ -4,7 +4,6 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image,
   Animated, Easing, Modal,
 } from 'react-native'
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
@@ -21,7 +20,7 @@ import MayaLogo from '@/assets/maya_logo.svg'
 import QrphLogo from '@/assets/qrph_logo.svg'
 import { ServiceType, SpaceType, SERVICE_LABELS } from '@/constants/types'
 import { useServices } from '@/hooks/useServices'
-import { estimatePrice, estimateBookingPrice, estimateDurationHours, serviceNeedsSqm } from '@/constants/pricing'
+import { estimatePrice, estimateBookingPrice, estimateDurationHours, serviceNeedsSqm, timeToMinutes, windowsOverlap } from '@/constants/pricing'
 import { saveDraft, loadDraft, clearDraft, saveRecentBooking } from '@/lib/bookingDraft'
 import { PAYMONGO_ENABLED } from '@/constants/config'
 import { isPaymongoMethod } from '@/lib/paymongo'
@@ -103,50 +102,6 @@ function RequiredBadge({ C }: { C: ReturnType<typeof useThemeColors> }) {
     <View style={{ backgroundColor: C.primaryBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
       <Text style={{ fontSize: 10, fontWeight: '700', color: Colors.primary }}>REQUIRED</Text>
     </View>
-  )
-}
-
-function DateTimeField({ label, value, displayValue, emptyText, onPress, show, onDone, C, children }: {
-  label: string
-  value: Date | null
-  displayValue: string
-  emptyText: string
-  onPress: () => void
-  show: boolean
-  onDone: () => void
-  C: ReturnType<typeof useThemeColors>
-  children: React.ReactNode
-}) {
-  return (
-    <>
-      <TouchableOpacity
-        onPress={onPress}
-        style={{
-          backgroundColor: C.white, borderWidth: 1.5,
-          borderColor: value ? Colors.primary : C.border,
-          borderRadius: 12, padding: 16,
-        }}
-      >
-        <Text style={{ fontSize: 12, color: C.textSecondary, marginBottom: 4 }}>{label} *</Text>
-        <Text style={{ fontSize: 15, fontWeight: '600', color: value ? C.text : C.textMuted }}>
-          {value ? displayValue : emptyText}
-        </Text>
-      </TouchableOpacity>
-
-      {show && (
-        <View style={{ backgroundColor: C.white, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: C.border }}>
-          {children}
-        </View>
-      )}
-      {Platform.OS === 'ios' && show && (
-        <TouchableOpacity
-          onPress={onDone}
-          style={{ alignSelf: 'stretch', paddingVertical: 14, backgroundColor: Colors.primary, borderRadius: 12, alignItems: 'center' }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Done</Text>
-        </TouchableOpacity>
-      )}
-    </>
   )
 }
 
@@ -453,12 +408,52 @@ function toTimeString(d: Date) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function formatClockMinutes(totalMin: number): string {
+  const h24 = Math.floor(totalMin / 60) % 24
+  const m = totalMin % 60
+  const period = h24 < 12 ? 'AM' : 'PM'
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
+/** e.g. formatWindowLabel('08:00', 3) -> "8:00 AM–11:00 AM" */
+function formatWindowLabel(time: string, durationHours: number): string {
+  const startMin = timeToMinutes(time)
+  return `${formatClockMinutes(startMin)}–${formatClockMinutes(startMin + durationHours * 60)}`
+}
+
 function isWithinServiceHours(time: Date): boolean {
   const h = time.getHours()
   const m = time.getMinutes()
   if (h < 8 || h > 17) return false
   if (h === 17 && m > 0) return false
   return true
+}
+
+// 30-minute slots covering the full 8:00 AM–5:00 PM service window — the
+// fixed set of times the Step 3 grid offers, so every option shown is
+// guaranteed to already satisfy isWithinServiceHours.
+const TIME_SLOTS: { hour: number; minute: number }[] = (() => {
+  const slots: { hour: number; minute: number }[] = []
+  for (let h = 8; h <= 17; h++) {
+    for (const m of [0, 30]) {
+      if (h === 17 && m > 0) continue
+      slots.push({ hour: h, minute: m })
+    }
+  }
+  return slots
+})()
+
+function timeSlotToDate(hour: number, minute: number): Date {
+  const d = new Date()
+  d.setHours(hour, minute, 0, 0)
+  return d
+}
+
+function combineDateAndTime(date: Date, hour: number, minute: number): Date {
+  const d = new Date(date)
+  d.setHours(hour, minute, 0, 0)
+  return d
 }
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
@@ -471,7 +466,6 @@ export default function NewBookingScreen() {
   const { isDark } = useTheme()
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
-  const defaultTime = useRef((() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d })()).current
   const [currentServiceSlug, setCurrentServiceSlug] = useState<string | undefined>(serviceSlug)
   const mountedSlugRef = useRef(serviceSlug)
   const [showMap, setShowMap] = useState(false)
@@ -479,7 +473,6 @@ export default function NewBookingScreen() {
   const [step2Visited, setStep2Visited] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [termsExpanded, setTermsExpanded] = useState(false)
-  const [showTimePicker, setShowTimePicker] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [showQrModal, setShowQrModal] = useState(false)
@@ -492,10 +485,11 @@ export default function NewBookingScreen() {
     amount: number
   } | null>(null)
 
-  // dateStr ('YYYY-MM-DD') -> booked time strings ('HH:MM') for this customer's
-  // own active (non-completed, non-cancelled) bookings — feeds both the Step 3
-  // calendar's crossed-out dates and the immediate date+time conflict check.
-  const [bookedSlots, setBookedSlots] = useState<Record<string, string[]>>({})
+  // dateStr ('YYYY-MM-DD') -> booked windows (time + duration) for this
+  // customer's own active (non-completed, non-cancelled) bookings — feeds
+  // both the Step 3 calendar's informational dots and the specific
+  // time-overlap conflict check.
+  const [bookedSlots, setBookedSlots] = useState<Record<string, { time: string; durationHours: number }[]>>({})
   const [dateConflictError, setDateConflictError] = useState<string | null>(null)
 
   const [paymentSettings,  setPaymentSettings]  = useState<Record<string, string>>({})
@@ -652,17 +646,17 @@ export default function NewBookingScreen() {
       if (!user) return
       const { data } = await supabase
         .from('bookings')
-        .select('service_date, service_time')
+        .select('service_date, service_time, duration_hours')
         .eq('customer_id', user.id)
         .neq('status', 'completed')
         .neq('status', 'cancelled')
 
-      const map: Record<string, string[]> = {}
-      ;(data ?? []).forEach((row: { service_date: string; service_time: string }) => {
+      const map: Record<string, { time: string; durationHours: number }[]> = {}
+      ;(data ?? []).forEach((row: { service_date: string; service_time: string; duration_hours: number | null }) => {
         const timeKey = row.service_time?.slice(0, 5) // 'HH:MM:SS' -> 'HH:MM'
         if (!timeKey) return
         if (!map[row.service_date]) map[row.service_date] = []
-        map[row.service_date].push(timeKey)
+        map[row.service_date].push({ time: timeKey, durationHours: row.duration_hours ?? 2 })
       })
       setBookedSlots(map)
     }
@@ -678,22 +672,63 @@ export default function NewBookingScreen() {
     if (next.time) update('service_time', next.time)
   }
 
-  // Single source of truth for the Step 3 conflict banner — one booking per
-  // calendar day, regardless of time. Recomputes on any date change OR once
-  // booked slots finish loading, so a restored draft (date already set
-  // before bookedSlots loads) is re-checked too, not just fresh picker taps.
-  useEffect(() => {
-    if (form.service_date) {
-      const conflict = (bookedSlots[toDateString(form.service_date)] ?? []).length > 0
-      setDateConflictError(conflict ? 'You already have a booking scheduled on this date. Please choose a different date.' : null)
-    } else {
-      setDateConflictError(null)
-    }
-  }, [form.service_date, bookedSlots])
-
   // Area-based (General Cleaning) services collect property size; unit/flat-rate
   // services (aircon, mattress, sofa, carpet, grease trap, …) do not.
   const needsSqm = serviceNeedsSqm(currentServiceSlug)
+
+  // Single source of truth for the Step 3 conflict banner — checks whether the
+  // SPECIFIC picked date+time window would overlap an existing active booking
+  // for this customer, not just whether the date has any booking at all.
+  // Recomputes on any date/time/service change OR once booked slots finish
+  // loading, so a restored draft is re-checked too, not just fresh picker taps.
+  useEffect(() => {
+    if (form.service_date && form.service_time) {
+      const windows = bookedSlots[toDateString(form.service_date)] ?? []
+      const sqm = needsSqm ? parseFloat(form.property_sqm) || 0 : 0
+      const candidateDuration = estimateDurationHours(currentServiceSlug, sqm)
+      const startMin = form.service_time.getHours() * 60 + form.service_time.getMinutes()
+      const conflict = windows.find(w =>
+        windowsOverlap(startMin, candidateDuration, timeToMinutes(w.time), w.durationHours)
+      )
+      setDateConflictError(
+        conflict ? `Conflicts with your ${formatWindowLabel(conflict.time, conflict.durationHours)} booking. Please choose a different time.` : null
+      )
+    } else {
+      setDateConflictError(null)
+    }
+  }, [form.service_date, form.service_time, form.property_sqm, currentServiceSlug, needsSqm, bookedSlots])
+
+  // Per-slot availability for the Step 3 time grid — each of the fixed 30-min
+  // TIME_SLOTS is either selectable, already picked, too soon (violates the
+  // 24h-advance rule), or in conflict with one of this customer's existing
+  // bookings on the selected date (crossed out, with the specific window it
+  // overlaps so the reason is never a mystery).
+  const timeSlotStates = form.service_date
+    ? TIME_SLOTS.map(({ hour, minute }) => {
+        const slotDate = combineDateAndTime(form.service_date!, hour, minute)
+        const isSelected = !!form.service_time
+          && form.service_time.getHours() === hour
+          && form.service_time.getMinutes() === minute
+
+        if (slotDate.getTime() - Date.now() < 24 * 60 * 60 * 1000) {
+          return { hour, minute, isSelected, state: 'too_soon' as const, reason: 'Bookings must be made at least 24 hours in advance.' }
+        }
+
+        const sqmForSlots = needsSqm ? parseFloat(form.property_sqm) || 0 : 0
+        const candidateDuration = estimateDurationHours(currentServiceSlug, sqmForSlots)
+        const startMin = hour * 60 + minute
+        const windows = bookedSlots[toDateString(form.service_date!)] ?? []
+        const conflict = windows.find(w => windowsOverlap(startMin, candidateDuration, timeToMinutes(w.time), w.durationHours))
+        if (conflict) {
+          return {
+            hour, minute, isSelected, state: 'conflict' as const,
+            reason: `Conflicts with your ${formatWindowLabel(conflict.time, conflict.durationHours)} booking.`,
+          }
+        }
+
+        return { hour, minute, isSelected, state: 'available' as const }
+      })
+    : []
 
   // Whether the Space Type picker is currently standing in for "which of the
   // 4 General Cleaning services" (no specific service chosen yet, or already
@@ -820,19 +855,23 @@ export default function NewBookingScreen() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setError('Not authenticated.'); setSubmitting(false); return }
 
-    // One booking per calendar day, regardless of time — backstop against the
-    // Step 3 calendar check (race conditions, stale bookedSlots, etc).
-    const { data: conflict } = await supabase
+    // Overlap backstop against the Step 3 live check (race conditions, stale
+    // bookedSlots, etc) — not a whole-day block, just this specific window.
+    const sqmForSubmit = needsSqm ? parseFloat(form.property_sqm) || 0 : 0
+    const candidateDurationForSubmit = estimateDurationHours(currentServiceSlug, sqmForSubmit)
+    const submitStartMin = form.service_time!.getHours() * 60 + form.service_time!.getMinutes()
+    const { data: sameDayBookings } = await supabase
       .from('bookings')
-      .select('id')
+      .select('service_time, duration_hours')
       .eq('customer_id', user.id)
       .eq('service_date', toDateString(form.service_date!))
       .neq('status', 'completed')
       .neq('status', 'cancelled')
-      .limit(1)
-      .maybeSingle()
-    if (conflict?.id) {
-      setError('You already have a booking scheduled on this date. Please choose a different date.')
+    const hasOverlap = (sameDayBookings ?? []).some((b: { service_time: string; duration_hours: number | null }) =>
+      windowsOverlap(submitStartMin, candidateDurationForSubmit, timeToMinutes(b.service_time.slice(0, 5)), b.duration_hours ?? 2)
+    )
+    if (hasOverlap) {
+      setError('You already have an overlapping booking on this date. Please choose a different date or time.')
       setSubmitting(false)
       return
     }
@@ -962,7 +1001,19 @@ export default function NewBookingScreen() {
     }).select('id').single()
 
     setSubmitting(false)
-    if (insertError) { setError(insertError.message); return }
+    if (insertError) {
+      // Last line of defense: the checks above have a TOCTOU gap between the
+      // read and this insert — two concurrent requests (e.g. two devices) can
+      // both pass them. The DB-level excl_bookings_customer_no_overlap
+      // EXCLUDE constraint is what actually blocks the second insert; surface
+      // a friendly message instead of the raw Postgres constraint-violation text.
+      if (insertError.code === '23P01' && insertError.message.includes('excl_bookings_customer_no_overlap')) {
+        setError('You already have an overlapping booking on this date. Please choose a different date or time.')
+      } else {
+        setError(insertError.message)
+      }
+      return
+    }
     draftCleared.current = true
     await clearDraft()
     await saveRecentBooking({
@@ -1502,62 +1553,68 @@ export default function NewBookingScreen() {
               />
             </View>
 
-            <DateTimeField
-              label="Time" value={form.service_time}
-              displayValue={form.service_time ? formatDisplayTime(form.service_time) : ''}
-              emptyText="Tap to select a time"
-              onPress={() => setShowTimePicker(true)}
-              show={showTimePicker} onDone={() => setShowTimePicker(false)} C={C}
-            >
-              <DateTimePicker
-                mode="time"
-                value={form.service_time ?? defaultTime}
-                display="spinner"
-                themeVariant={isDark ? 'dark' : 'light'}
-                accentColor={Colors.primary}
-                minuteInterval={30}
-                onChange={(_e: DateTimePickerEvent, date?: Date) => {
-                  if (Platform.OS === 'android') setShowTimePicker(false)
-                  if (date) handleDateOrTimeChange({ time: date })
-                }}
-              />
-            </DateTimeField>
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 12, color: C.textSecondary }}>Time *</Text>
 
-            {/* Already-booked inline conflict */}
-            {dateConflictError && (
-              <View style={{
-                backgroundColor: '#fef2f2', borderRadius: 10, padding: 12,
-                borderWidth: 1, borderColor: '#fca5a5',
-                flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-              }}>
-                <Feather name="alert-circle" size={15} color="#dc2626" style={{ marginTop: 1 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#dc2626', marginBottom: 2 }}>
-                    Already booked
-                  </Text>
-                  <Text style={{ fontSize: 12, color: '#b91c1c', lineHeight: 17 }}>{dateConflictError}</Text>
+              {!form.service_date ? (
+                <View style={{
+                  backgroundColor: C.background, borderRadius: 12,
+                  borderWidth: 1, borderColor: C.border, padding: 16, alignItems: 'center',
+                }}>
+                  <Text style={{ fontSize: 13, color: C.textMuted }}>Select a date first to see available times.</Text>
                 </View>
-              </View>
-            )}
+              ) : (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {timeSlotStates.map(slot => {
+                    const isUnavailable = slot.state === 'conflict' || slot.state === 'too_soon'
+                    return (
+                      <TouchableOpacity
+                        key={`${slot.hour}-${slot.minute}`}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (isUnavailable) { Alert.alert('Unavailable', slot.reason); return }
+                          handleDateOrTimeChange({ time: timeSlotToDate(slot.hour, slot.minute) })
+                        }}
+                        style={{
+                          minWidth: 92, paddingVertical: 10, paddingHorizontal: 10,
+                          borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+                          borderWidth: 1.5,
+                          backgroundColor: slot.isSelected
+                            ? Colors.primary
+                            : slot.state === 'conflict' ? '#fef2f2'
+                            : slot.state === 'too_soon' ? C.background
+                            : C.white,
+                          borderColor: slot.isSelected
+                            ? Colors.primary
+                            : slot.state === 'conflict' ? '#fca5a5'
+                            : C.border,
+                        }}
+                      >
+                        <Text style={{
+                          fontSize: 13, fontWeight: slot.isSelected ? '700' : '600',
+                          color: slot.isSelected ? '#fff'
+                            : slot.state === 'conflict' ? '#b91c1c'
+                            : slot.state === 'too_soon' ? C.textMuted
+                            : C.text,
+                          textDecorationLine: slot.state === 'conflict' ? 'line-through' : 'none',
+                        }}>
+                          {formatClockMinutes(slot.hour * 60 + slot.minute)}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
+              )}
 
-            {/* Out-of-hours inline warning */}
-            {form.service_time && !isWithinServiceHours(form.service_time) && (
-              <View style={{
-                backgroundColor: '#fef2f2', borderRadius: 10, padding: 12,
-                borderWidth: 1, borderColor: '#fca5a5',
-                flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-              }}>
-                <Feather name="alert-circle" size={15} color="#dc2626" style={{ marginTop: 1 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#dc2626', marginBottom: 2 }}>
-                    Outside service hours
-                  </Text>
-                  <Text style={{ fontSize: 12, color: '#b91c1c', lineHeight: 17 }}>
-                    {formatDisplayTime(form.service_time)} is not within our operating window. Please choose a time between 8:00 AM and 5:00 PM.
+              {form.service_date && timeSlotStates.some(s => s.state === 'conflict') && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                  <Text style={{ fontSize: 11, color: '#b91c1c', textDecorationLine: 'line-through' }}>8:00 AM</Text>
+                  <Text style={{ fontSize: 11, color: C.textMuted, flex: 1 }}>
+                    Crossed-out times overlap a booking you already have — tap one to see which.
                   </Text>
                 </View>
-              </View>
-            )}
+              )}
+            </View>
 
             <View style={{ backgroundColor: '#fffbeb', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#fde68a' }}>
               <Text style={{ fontSize: 12, color: '#92400e' }}>

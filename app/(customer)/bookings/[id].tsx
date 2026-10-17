@@ -281,12 +281,28 @@ export default function BookingDetailScreen() {
               const { data: { user } } = await supabase.auth.getUser()
               if (!user) throw new Error('Not authenticated.')
 
-              const { error } = await supabase
+              // Guard against a stale screen: only cancel if the booking is
+              // still in a cancellable state server-side right now (e.g. the
+              // cleaner may have started or completed it in the meantime).
+              // .select('id') lets us tell "cancelled" apart from "0 rows
+              // matched" — an update() alone doesn't report rows affected.
+              const { data: cancelledRows, error } = await supabase
                 .from('bookings')
                 .update({ status: 'cancelled' })
                 .eq('id', id)
                 .eq('customer_id', user.id)
+                .in('status', ['pending', 'confirmed'])
+                .select('id')
               if (error) throw error
+
+              if (!cancelledRows || cancelledRows.length === 0) {
+                Alert.alert(
+                  'Cannot cancel',
+                  'This booking can no longer be cancelled — it may have already started or been completed. Pull down to refresh and see its latest status.'
+                )
+                await load()
+                return
+              }
 
               await supabase
                 .from('cleaner_assignments')

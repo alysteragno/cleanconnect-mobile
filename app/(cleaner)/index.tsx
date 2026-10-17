@@ -72,6 +72,23 @@ function todayLabel() {
   });
 }
 
+/** e.g. "since this morning" / "since yesterday" / "since Jul 20" */
+function formatUnavailableSince(iso: string | null): string | null {
+  if (!iso) return null;
+  const since = new Date(iso);
+  const now = new Date();
+  if (since.toDateString() === now.toDateString()) {
+    const h = since.getHours();
+    if (h < 12) return "since this morning";
+    if (h < 17) return "since this afternoon";
+    return "since this evening";
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (since.toDateString() === yesterday.toDateString()) return "since yesterday";
+  return `since ${since.toLocaleDateString("en-PH", { month: "short", day: "numeric" })}`;
+}
+
 function makeStyles(C: ReturnType<typeof useThemeColors>) {
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: C.background },
@@ -192,6 +209,9 @@ export default function CleanerHomeScreen() {
 
   const [name, setName] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+  const [unavailableSince, setUnavailableSince] = useState<string | null>(null);
   const [offers, setOffers] = useState<JobOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -220,7 +240,7 @@ export default function CleanerHomeScreen() {
         await Promise.all([
           supabase
             .from("profiles")
-            .select("full_name, photo_url")
+            .select("full_name, photo_url, is_available, unavailable_reason, unavailable_since")
             .eq("id", user.id)
             .single(),
           supabase
@@ -250,9 +270,18 @@ export default function CleanerHomeScreen() {
             .eq("is_read", false),
         ]);
 
-      const p = profile as { full_name: string; photo_url: string | null } | null;
+      const p = profile as {
+        full_name: string;
+        photo_url: string | null;
+        is_available: boolean | null;
+        unavailable_reason: string | null;
+        unavailable_since: string | null;
+      } | null;
       setName(p?.full_name?.split(" ")[0] ?? "there");
       setPhotoUrl(p?.photo_url ?? null);
+      setIsAvailable(p?.is_available !== false);
+      setUnavailableReason(p?.unavailable_reason ?? null);
+      setUnavailableSince(p?.unavailable_since ?? null);
       const offerList = ((assignments ?? []) as unknown as JobOffer[]).filter(
         (a) => !["completed", "cancelled"].includes(a.bookings?.status ?? ""),
       );
@@ -332,6 +361,44 @@ export default function CleanerHomeScreen() {
         />
 
         <View style={s.body}>
+          {/* Unavailable status — admin-set, read-only, informational only. */}
+          {!isAvailable && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 10,
+                backgroundColor: "#fffbeb",
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: "#fde68a",
+                padding: 14,
+              }}
+            >
+              <Feather name="pause-circle" size={18} color="#b45309" style={{ marginTop: 1 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: "#92400e" }}>
+                  You've been marked unavailable
+                </Text>
+                <Text style={{ fontSize: 12, color: "#92400e", marginTop: 2, lineHeight: 17 }}>
+                  {(() => {
+                    const sincePart = formatUnavailableSince(unavailableSince);
+                    const detail = [
+                      sincePart ? `Unavailable ${sincePart}` : null,
+                      unavailableReason,
+                    ]
+                      .filter(Boolean)
+                      .join(" — ");
+                    return detail || "You won't be offered new jobs until this is cleared by an admin.";
+                  })()}
+                </Text>
+                <Text style={{ fontSize: 11, color: "#b45309", marginTop: 4 }}>
+                  This doesn't affect jobs already assigned to you.
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Greeting card */}
           <View style={s.greetingCard}>
             {photoUrl ? (

@@ -52,6 +52,13 @@ export type Profile = {
   photo_url: string | null
   emergency_contact_name: string | null
   emergency_contact_phone: string | null
+  // Admin-only "unavailable now" toggle (e.g. called in sick) — set from the
+  // web dashboard. Distinct from is_active (deactivation) and
+  // cleaner_availability (a specific future day off): this affects whether
+  // the cleaner is offered NEW jobs, not their login or existing assignments.
+  is_available: boolean
+  unavailable_reason: string | null
+  unavailable_since: string | null
 }
 
 export type Booking = {

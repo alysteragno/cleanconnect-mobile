@@ -458,8 +458,27 @@ export default function CleanerScheduleScreen() {
         Alert.alert('Request Rejected', `Your request for ${formatDate(dateStr)} was not approved.${note}`)
       }
     } else if (dateStr >= tomorrowStr() && new Date(dateStr + 'T00:00:00').getDay() !== 0) {
-      setFormDate(dateStr)
-      setShowForm(true)
+      // Nothing links day-off requests to existing assignments at the DB
+      // level — warn here so the cleaner doesn't request (and get approved
+      // for) a day off on a date they're already booked, only to find out
+      // the conflict later.
+      const jobsThatDay = jobsByDate[dateStr] ?? []
+      if (jobsThatDay.length > 0) {
+        const jobList = jobsThatDay
+          .map(j => `• ${getService(j.bookings?.service_slug)?.name ?? 'Cleaning Service'} at ${formatTime(j.bookings?.service_time)}`)
+          .join('\n')
+        Alert.alert(
+          'You already have a job this day',
+          `You have ${jobsThatDay.length} job${jobsThatDay.length > 1 ? 's' : ''} assigned on ${formatDate(dateStr)}:\n\n${jobList}\n\nRequesting this day off won't remove or reassign these jobs — admin will need to handle that separately. Continue with your request?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Request Anyway', onPress: () => { setFormDate(dateStr); setShowForm(true) } },
+          ]
+        )
+      } else {
+        setFormDate(dateStr)
+        setShowForm(true)
+      }
     }
   }
 

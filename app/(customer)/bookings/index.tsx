@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, TouchableOpacity, FlatList,
   ActivityIndicator, RefreshControl, Modal, Image,
@@ -106,6 +106,25 @@ function paymentMethodLabel(method: string): string {
   return PAYMENT_METHOD_LABELS[method] ?? method
 }
 
+const PAGE_SIZE = 10
+
+// Mirrors cleanconnect-web's src/components/dashboard/pagination.tsx page-list
+// algorithm: always show first, last, and a window around the current page,
+// with an ellipsis filling any gap — so a numbered [1][2]...[8] control stays
+// compact no matter how many pages there are.
+function getPageItems(current: number, total: number): (number | 'ellipsis')[] {
+  const pageSet = new Set<number>([1, total, current, current - 1, current + 1])
+  const pageList = [...pageSet].filter(p => p >= 1 && p <= total).sort((a, b) => a - b)
+  const items: (number | 'ellipsis')[] = []
+  let prev = 0
+  for (const p of pageList) {
+    if (prev && p - prev > 1) items.push('ellipsis')
+    items.push(p)
+    prev = p
+  }
+  return items
+}
+
 const FILTERS: Array<{ label: string; value: BookingStatus | 'all' }> = [
   { label: 'All Bookings',  value: 'all' },
   { label: 'Pending',       value: 'pending' },
@@ -142,8 +161,14 @@ export default function BookingsHistoryScreen() {
   const [filter,         setFilter]         = useState<BookingStatus | 'all'>('all')
   const [dropdownOpen,   setDropdownOpen]   = useState(false)
   const [unreadCount,    setUnreadCount]    = useState(0)
+  const [page,           setPage]           = useState(1)
 
   useFocusEffect(useCallback(() => { load() }, []))
+
+  // Changing the status filter changes what "page 1" means, so jump back to
+  // it rather than leaving the user stranded on a page number that no longer
+  // lines up with the newly-filtered list.
+  useEffect(() => { setPage(1) }, [filter])
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -175,6 +200,14 @@ export default function BookingsHistoryScreen() {
 
   const activeFilter  = FILTERS.find(f => f.value === filter)!
   const displayed     = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
+
+  // Clamped rather than trusting `page` state directly, so a shrinking list
+  // (filter change, refresh, cancellation) can never strand the view on a
+  // page number that's gone out of range.
+  const totalPages  = Math.max(1, Math.ceil(displayed.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageItems   = getPageItems(currentPage, totalPages)
+  const paged       = displayed.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   // ── Loading ───────────────────────────────────────────────────────────────
 
@@ -283,7 +316,7 @@ export default function BookingsHistoryScreen() {
 
       {/* Booking list */}
       <FlatList
-        data={displayed}
+        data={paged}
         keyExtractor={b => b.id}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 96 }}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
@@ -443,12 +476,60 @@ export default function BookingsHistoryScreen() {
         }}
       />
 
+      {/* Numbered pagination — mirrors cleanconnect-web's Pagination component */}
+      {totalPages > 1 && (
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+          paddingVertical: 8, paddingHorizontal: 16,
+          borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.white,
+        }}>
+          <TouchableOpacity
+            onPress={() => setPage(currentPage - 1)}
+            disabled={currentPage === 1}
+            style={{ padding: 8, opacity: currentPage === 1 ? 0.35 : 1 }}
+          >
+            <Feather name="chevron-left" size={18} color={C.textSecondary} />
+          </TouchableOpacity>
+
+          {pageItems.map((it, i) =>
+            it === 'ellipsis' ? (
+              <Text key={`e${i}`} style={{ fontSize: 13, color: C.textMuted, paddingHorizontal: 4 }}>…</Text>
+            ) : (
+              <TouchableOpacity
+                key={it}
+                onPress={() => setPage(it)}
+                style={{
+                  minWidth: 30, height: 30, borderRadius: 8,
+                  alignItems: 'center', justifyContent: 'center',
+                  backgroundColor: it === currentPage ? Colors.primary : 'transparent',
+                }}
+              >
+                <Text style={{
+                  fontSize: 13, fontWeight: '700',
+                  color: it === currentPage ? '#fff' : C.textSecondary,
+                }}>
+                  {it}
+                </Text>
+              </TouchableOpacity>
+            )
+          )}
+
+          <TouchableOpacity
+            onPress={() => setPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            style={{ padding: 8, opacity: currentPage === totalPages ? 0.35 : 1 }}
+          >
+            <Feather name="chevron-right" size={18} color={C.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* FAB — New Booking */}
       {bookings.length > 0 && (
         <TouchableOpacity
           onPress={() => router.push('/(customer)/bookings/new')}
           style={{
-            position: 'absolute', bottom: 24, right: 20,
+            position: 'absolute', bottom: totalPages > 1 ? 72 : 24, right: 20,
             backgroundColor: Colors.primary, borderRadius: 32,
             flexDirection: 'row', alignItems: 'center', gap: 8,
             paddingHorizontal: 20, paddingVertical: 14,
